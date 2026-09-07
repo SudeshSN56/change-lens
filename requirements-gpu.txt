@@ -1,0 +1,7 @@
+torch==2.1.0
+torchvision==0.16.0
+open_clip_torch==2.23.0
+huggingface_hub==0.19.4
+transformers==4.35.2
+timm==0.9.12
+einops==0.7.0

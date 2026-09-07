@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7.2.0
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["api"]
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATA_DIR=/data
+      - MODELS_DIR=/models
+      - BEFORE_DIR=/incoming/before
+      - AFTER_DIR=/incoming/after
+    volumes:
+      - ../data/before:/incoming/before
+      - ../data/after:/incoming/after
+      - ../data:/data
+      - ../models:/models
+      - ../logs:/logs
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["worker"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATA_DIR=/data
+      - MODELS_DIR=/models
+      - BEFORE_DIR=/incoming/before
+      - AFTER_DIR=/incoming/after
+    volumes:
+      - ../data/before:/incoming/before
+      - ../data/after:/incoming/after
+      - ../data:/data
+      - ../models:/models
+      - ../logs:/logs
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  poller:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["poller"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATA_DIR=/data
+      - BEFORE_DIR=/incoming/before
+      - AFTER_DIR=/incoming/after
+    volumes:
+      - ../data/before:/incoming/before
+      - ../data/after:/incoming/after
+      - ../data:/data
+      - ../logs:/logs
+    depends_on:
+      - redis
+
+volumes:
+  redis-data:

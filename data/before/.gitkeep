@@ -1,0 +1,3 @@
+# Drop "before" scene GeoTIFFs here. A file must share the same base
+# filename (minus extension) with its counterpart in data/after/.
+# e.g. site1.tif here + site1.tif in after/ = one before/after pair.
