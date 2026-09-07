@@ -1,9 +1,10 @@
 from ..db import lancedb as lancedb_wrapper
-from ..inference.encoder import embed_text
 from .filters import build_where_clause
 
 
 def text_search(query: str, filters: dict = None, limit: int = 50):
+    from ..inference.encoder import embed_text
+
     vector = embed_text(query)
     where = build_where_clause(filters)
     return lancedb_wrapper.search_tiles(vector, where=where, limit=limit)
