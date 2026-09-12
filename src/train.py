@@ -94,6 +94,8 @@ def main():
     ap.add_argument("--freeze-encoder", action="store_true")
     ap.add_argument("--eval-batches", type=int, default=40,
                     help="val batches per epoch; 0 = full test split")
+    ap.add_argument("--resume", default=None,
+                    help="checkpoint to resume from, e.g. weights/last.pt")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -132,9 +134,34 @@ def main():
 
     best_sek = -1.0
     history = []
+    start_epoch = 1
+
+    if args.resume:
+        print(f"resuming from {args.resume}")
+        ckpt = torch.load(args.resume, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt["model"])
+        start_epoch = ckpt["epoch"] + 1
+        if "optim" in ckpt:
+            opt.load_state_dict(ckpt["optim"])
+        if "sched" in ckpt:
+            sched.load_state_dict(ckpt["sched"])
+        else:
+            # Older checkpoints didn't save scheduler state. Fast-forward the
+            # cosine schedule so LR picks up where it left off instead of
+            # restarting from the warmup.
+            for _ in range((start_epoch - 1) * len(train_ld)):
+                sched.step()
+        hist_path = WEIGHTS / "history.json"
+        if hist_path.exists():
+            history = json.loads(hist_path.read_text())
+            history = [h for h in history if h["epoch"] < start_epoch]
+            if history:
+                best_sek = max(h["sek"] for h in history)
+        print(f"resumed at epoch {start_epoch}, best_sek so far {best_sek:.4f}")
+
     t_start = time.time()
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         model.train()
         running = ep_sem = ep_chg = 0.0
         t0 = time.time()
@@ -182,7 +209,7 @@ def main():
             k: v for k, v in s.items() if k != "per_class_iou"}})
 
         ckpt = {"model": model.state_dict(), "epoch": epoch, "args": vars(args),
-                "metrics": s}
+                "metrics": s, "optim": opt.state_dict(), "sched": sched.state_dict()}
         torch.save(ckpt, WEIGHTS / "last.pt")
         if s["sek"] > best_sek:
             best_sek = s["sek"]

@@ -60,9 +60,12 @@ def per_category(T, changed_px):
         pb = 100.0 * before / changed_px if changed_px else 0.0
         pa = 100.0 * after / changed_px if changed_px else 0.0
         delta = pa - pb
-        # A relative percentage against a zero base is undefined, not infinite.
-        # Emitting null here is what stops the UI printing "+1309%".
-        rel = round(delta / pb * 100.0, 1) if pb > 0 else None
+        # A relative percentage against a near-zero base is technically defined
+        # but practically meaningless -- a before-share of 0.2% turns a modest
+        # absolute gain into "+46,296.9%", which reads as a bug, not a metric.
+        # Below MIN_BASE_PCT the base is treated the same as an exact zero.
+        MIN_BASE_PCT = 1.0
+        rel = round(delta / pb * 100.0, 1) if pb >= MIN_BASE_PCT else None
         rows.append({
             "class": NAMES[i + 1],
             "class_idx": i + 1,
