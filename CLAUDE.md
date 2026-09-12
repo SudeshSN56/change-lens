@@ -23,8 +23,14 @@ src/                 model + pipeline (all imports are flat: `--app-dir src`)
   metadata.py        deterministic SYNTHETIC city/date/sensor metadata (md5-seeded, flagged `synthetic: true`)
   parser.py          rule-based NL query parser (regex/keywords only, 10 supported patterns)
   search.py          filter/rank/similarity over the in-memory index + relaxation fallback ladder
-  api.py             FastAPI: /api/health /api/pairs /api/pairs/{id} /api/query /api/examples /api/analyze
-frontend/            React 19 + Vite 8. App.jsx holds Query / Gallery / Upload / Detail views.
+  api.py             FastAPI: /api/health /api/pairs /api/pairs/{id} /api/pairs/{id}/similar
+                     /api/query /api/examples /api/stats /api/analyze
+frontend/            React 19 + Vite 8, no extra deps. "Command console" UI, hash routing.
+  src/App.jsx        routes: #/ overview, #/search?q=, #/explore, #/analyze, #/pair/{id}[?src=gt]
+  src/lib/           constants.js (classes, change LEVELS, ACTIVITIES grouping), hooks.js (fetch, router, nav list)
+  src/components/    Shell (sidebar/topbar), ui (badges, cards, tables), charts (hand-rolled SVG),
+                     Compare (swipe/flicker/side-by-side + magnifier), Assessment (shared tile report)
+  src/views/         Overview, Search, Explorer, Dossier (tile assessment), Analyze (upload)
 data/second          symlink -> /c/dataa/second (im1, im2, label1, label2)
 data/splits/         train.txt (2226 pairs), test.txt (742 pairs)
 data/analyzed/       per-pair {id}.json / {id}_gt.json + overlays/ + index.json / index_gt.json
@@ -75,22 +81,51 @@ cd frontend && npm run dev                             # expects API at http://l
 - React frontend: query view with example chips, gallery with paging, upload drop zones,
   detail view with a Model / Ground-Truth toggle.
 
-## 5. Status — in progress (both running as of 2026-09-12)
+## 5. Status — in progress (as of 2026-09-13)
 
-- **Training** (`src/train.py`, PID 19012, GPU ~67%): epoch **1 of 40** complete.
-  Epoch 1: SeK 0.0471, change IoU 0.319, binary mIoU 0.576, semantic mIoU 0.391, OA 0.781,
-  F1 0.483 (P 0.743 / R 0.358). ~200 s/epoch → ~2.2 h for the full run.
+- **Run 1 (baseline) finished**, 40 epochs, backed up to `weights/run1_baseline/`.
+  Plateaued from ~epoch 35: epoch 40 SeK 0.144 (best ~0.147), change IoU 0.467,
+  semantic mIoU 0.673, change P 0.79 / R 0.53. Diagnosis: the change head under-predicts
+  (changed pixels are ~20% of data, BCE was unweighted), which also starves the semantic
+  heads, since they are supervised only inside changed regions.
+- **Run 2 never ran**: `train_run2.log` stops at epoch 1 iteration 0 (process was likely killed
+  with its session). Its only change, BCE `pos_weight` ≈ 2.0, is folded into run 3.
+- **Run 3 training** (started 2026-09-13, detached via `Start-Process`, logs `train_run3.log` /
+  `train_run3.err.log`), 80 epochs:
+  `.venv/Scripts/python.exe -u src/train.py --backbone resnet34 --epochs 80 --batch-size 8 --workers 4`
+  (with `PYTHONPATH=src`). Changes vs run 1:
+  - ResNet-34 backbone (`--backbone`, local weights `weights/resnet34_imagenet.pt`; backbone is
+    stored in checkpoint args and `model.load_checkpoint` reads it, so run 1 ckpts still load).
+  - Change head loss = BCE(pos_weight≈2.0) + soft Dice (`--dice-weight 1`).
+  - Semantic consistency loss (`--sc-weight 1`): cosine pull-together of the two softmaxes on
+    unchanged pixels, push-apart where the class changed.
+  - Trains on "fit" (train.txt minus every 10th id, 2003 pairs); "val" (every 10th, 223 pairs)
+    picks best.pt. Carved in `dataset.read_ids`, the on-disk split is untouched. Test is only
+    used for the final report.
+  - After the last epoch: sweeps the change threshold 0.15–0.75 with 4-way flip TTA on val,
+    writes `thresh` and `tta` into best.pt (analyze.py and api.py use them), and writes
+    `final_metrics.json` with test scores both plain (0.5, no TTA) and tuned.
+  - `--smoke` does a ~1 min end-to-end check into `weights/smoke/`; it passed before launch.
+  It overwrites `weights/best.pt`, `last.pt`, `history.json` (run 1 is safe in `run1_baseline/`).
+  Compare the tuned test SeK with run 1 (0.144) and keep the better run.
   Target for the slide: SeK ~0.20 is competitive on SECOND.
-  Weak classes after epoch 1: tree (IoU 0.081), water (0.054), playgrounds (0.187).
-- **Ground-truth analysis** (`src/analyze.py --source gt`): ~565 of 742 pairs written to
-  `data/analyzed/`. `index_gt.json` is only written at the end, so it does not exist yet.
+- **Index files exist** (checked 2026-09-13): `index_gt.json` (GT, complete) and `index.json`
+  (model, built 2026-09-12 from the **run 1** checkpoint). `index.json` must be rebuilt after run 3.
+- **Frontend redesign done** (2026-09-13) for the defence-commander demo: situation overview
+  (KPIs, activity breakdown, sector plot, level histogram, watchlist), query page with parsed-filter
+  tokens and history, filterable tile explorer, tile assessment with swipe/flicker viewer,
+  transition matrix, model-vs-GT summary, similar tiles, print brief. Built and screenshot-checked
+  (headless Edge) against the live API; `npm run build` passes, oxlint has only warnings.
+  Change levels: Severe ≥40%, High ≥25%, Moderate ≥10%, Low. "Activities" group the 30
+  transitions (construction, removal, clearing, water, regrowth, veg shift, other) — frontend only.
+  Upload flow (/api/analyze) not yet exercised in the new UI.
 
 ## 6. Status — remaining
 
-1. Let training finish all 40 epochs; check `weights/history.json` for the best SeK epoch.
-2. Let `analyze.py --source gt` finish so `data/analyzed/index_gt.json` exists.
-3. Run `analyze.py` (model source) against the final `weights/best.pt` to produce `index.json` —
-   the API loads this at startup, and it does not exist yet.
+1. Let run 3 finish all 80 epochs; read `weights/final_metrics.json` (tuned vs plain test SeK).
+2. (done) `index_gt.json` exists.
+3. Re-run `analyze.py` (model source) against the final run 3 `weights/best.pt` to rebuild
+   `index.json` — the current one is from run 1. Restart the API afterwards (index loads at startup).
 4. Start the API + frontend together and walk the full flow end to end
    (query → results → detail → GT toggle → upload).
 5. Write `requirements.txt` (or pyproject) pinning torch 2.5.1+cu121 and the rest.

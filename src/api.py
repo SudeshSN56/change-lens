@@ -73,16 +73,14 @@ def _startup():
 def get_model():
     """Lazy singleton. Raises a clear 503 rather than a stack trace if untrained."""
     if STATE["model"] is None:
-        from model import build_model
+        from model import load_checkpoint
         ckpt_path = ROOT / "weights" / "best.pt"
         if not ckpt_path.exists():
             raise HTTPException(503, "No trained checkpoint at weights/best.pt yet.")
-        ckpt = torch.load(ckpt_path, map_location=STATE["device"], weights_only=False)
-        m = build_model(pretrained=False, device=STATE["device"])
-        m.load_state_dict(ckpt["model"])
-        m.eval()
+        m, ckpt = load_checkpoint(ckpt_path, STATE["device"])
         STATE["model"] = m
-        print(f"[api] model loaded (epoch {ckpt.get('epoch','?')})")
+        STATE["infer"] = {"thresh": ckpt.get("thresh", 0.5), "tta": ckpt.get("tta", False)}
+        print(f"[api] model loaded (epoch {ckpt.get('epoch','?')}, {STATE['infer']})")
     return STATE["model"]
 
 
@@ -178,6 +176,39 @@ def examples():
     ]}
 
 
+@app.get("/api/stats")
+def stats():
+    """Index-wide aggregates for the overview dashboard.
+
+    The index drops each pair's transition matrix, but transition_vec is that
+    matrix flattened and divided by changed_px, so multiplying back recovers it
+    and the sum over the index is exact. Level/region/histogram roll-ups are left
+    to the client, which gets one lightweight point per tile."""
+    recs = STATE["records"]
+    matrix = np.zeros((6, 6), dtype=np.float64)
+    points = []
+    for r in recs:
+        matrix += np.asarray(r["transition_vec"], dtype=np.float64).reshape(6, 6) * r["changed_px"]
+        md = r.get("metadata", {})
+        points.append({"pair_id": r["pair_id"], "region": md.get("region"),
+                       "lat": md.get("lat"), "lon": md.get("lon"),
+                       "pct": r["changed_pct_of_frame"]})
+    return {"n_records": len(recs), "source": STATE["source"],
+            "transition_matrix": np.rint(matrix).astype(int).tolist(),
+            "points": points}
+
+
+@app.get("/api/pairs/{pair_id}/similar")
+def similar_pairs(pair_id: str, k: int = 6):
+    rec = STATE["by_id"].get(pair_id)
+    if rec is None:
+        raise HTTPException(404, f"unknown pair {pair_id}")
+    if STATE["sim"] is None or not rec["changed_px"]:
+        return {"results": []}
+    hits = STATE["sim"].query(rec["transition_vec"], k=k, exclude=pair_id)
+    return {"results": [card(r) for r in hits]}
+
+
 @app.post("/api/analyze")
 async def analyze_upload(before: UploadFile = File(...), after: UploadFile = File(...)):
     model = get_model()
@@ -208,7 +239,7 @@ async def analyze_upload(before: UploadFile = File(...), after: UploadFile = Fil
         b = torch.from_numpy(normalize(im2))[None].to(STATE["device"])
         with torch.autocast("cuda", dtype=torch.bfloat16,
                             enabled=STATE["device"] == "cuda"):
-            p1, p2, _ = model.predict(a, b)
+            p1, p2, _ = model.predict(a, b, **STATE["infer"])
     p1 = p1[0].cpu().numpy().astype(np.uint8)
     p2 = p2[0].cpu().numpy().astype(np.uint8)
 

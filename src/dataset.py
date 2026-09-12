@@ -32,7 +32,18 @@ SPLITS = ROOT / "data" / "splits"
 ASSERT_MASK_EQ = 32
 
 
+# "fit" and "val" are carved from train.txt on the fly (every 10th id is val), so the
+# on-disk split is never regenerated and test.txt stays the untouched eval set.
+# Checkpoint selection and threshold tuning happen on val, never on test.
+VAL_EVERY = 10
+
+
 def read_ids(split):
+    if split in ("fit", "val"):
+        ids = read_ids("train")
+        if split == "val":
+            return ids[::VAL_EVERY]
+        return [x for i, x in enumerate(ids) if i % VAL_EVERY]
     p = SPLITS / f"{split}.txt"
     if not p.exists():
         raise FileNotFoundError(f"{p} missing -- run `python src/make_split.py` first")

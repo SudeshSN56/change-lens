@@ -1,0 +1,64 @@
+CHANGE-LENS SETUP
+
+1) Create and activate Python environment
+
+   cd c:\army\change-lens
+   py -3.11 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+
+2) Install dependencies
+
+   python -m pip install --upgrade pip
+   python -m pip install -r requirements.txt
+
+3) Verify project paths
+
+   The project expects:
+   - data/second -> symlink to SECOND dataset folder
+   - weights/ -> contains checkpoints and ImageNet init
+   - src/ -> project code
+   - frontend/ -> React app
+
+4) Prepare dataset split (if needed)
+
+   PYTHONPATH=src .venv\Scripts\python.exe src/make_split.py
+
+5) Train model
+
+   PYTHONPATH=src .venv\Scripts\python.exe src/train.py --epochs 40 --batch-size 8 --workers 4
+
+   Optional examples:
+   PYTHONPATH=src .venv\Scripts\python.exe src/train.py --epochs 20 --batch-size 8 --lr 1e-4 --chg-weight 1.5
+   PYTHONPATH=src .venv\Scripts\python.exe src/train.py --epochs 40 --batch-size 8 --resume weights/last.pt
+
+6) Analyze predictions for the model
+
+   PYTHONPATH=src .venv\Scripts\python.exe src/analyze.py
+
+7) Analyze ground truth
+
+   PYTHONPATH=src .venv\Scripts\python.exe src/analyze.py --source gt
+
+8) Start API
+
+   PYTHONPATH=src .venv\Scripts\python.exe -m uvicorn api:app --app-dir src --port 8000
+
+9) Start frontend
+
+   cd frontend
+   npm install
+   npm run dev
+
+10) Useful notes
+
+   - Use .venv interpreter, not bare python.
+   - On Windows: use .venv\Scripts\python.exe
+   - API default URL is http://localhost:8000
+   - Frontend expects VITE_API or uses localhost:8000 by default
+   - Training logs and metrics are stored under weights/
+
+11) Common checks
+
+   - Check metrics: weights/final_metrics.json
+   - Check training history: weights/history.json
+   - Check best checkpoint: weights/best.pt

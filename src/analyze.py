@@ -183,13 +183,12 @@ def main():
     model = None
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if args.source == "model":
-        from model import build_model
-        ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-        model = build_model(pretrained=False, device=device)
-        model.load_state_dict(ckpt["model"])
-        model.eval()
+        from model import load_checkpoint
+        model, ckpt = load_checkpoint(args.checkpoint, device)
+        thresh, tta = ckpt.get("thresh", 0.5), ckpt.get("tta", False)
         print(f"loaded {args.checkpoint} (epoch {ckpt.get('epoch','?')}, "
-              f"SeK {ckpt.get('metrics',{}).get('sek',float('nan')):.4f})")
+              f"SeK {ckpt.get('metrics',{}).get('sek',float('nan')):.4f}, "
+              f"thresh {thresh:.2f}, tta {tta})")
 
     suffix = "" if args.source == "model" else "_gt"
     records = []
@@ -204,7 +203,7 @@ def main():
                 a = torch.from_numpy(normalize(im1))[None].to(device)
                 b = torch.from_numpy(normalize(im2))[None].to(device)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device == "cuda"):
-                    o1, o2, _ = model.predict(a, b)
+                    o1, o2, _ = model.predict(a, b, thresh=thresh, tta=tta)
                 p1 = o1[0].cpu().numpy().astype(np.uint8)
                 p2 = o2[0].cpu().numpy().astype(np.uint8)
 

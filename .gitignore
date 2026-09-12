@@ -17,6 +17,7 @@ uploads/
 # never needs the network; the trained checkpoints are too large for git.
 weights/*.pt
 !weights/resnet18_imagenet.pt
+weights/run1_baseline/
 weights/history.json
 weights/final_metrics.json
 

@@ -30,15 +30,25 @@ class SCDMetrics:
 
     @torch.no_grad()
     def update(self, true_map, pred_map):
-        """true_map, pred_map: integer tensors/arrays in 0..6 (0 = no-change)."""
-        t = _to_numpy(true_map).ravel()
-        p = _to_numpy(pred_map).ravel()
-        k = t * self.n + p
-        self.cm += np.bincount(k, minlength=self.n * self.n).reshape(self.n, self.n)
+        """true_map, pred_map: integer tensors/arrays in 0..6 (0 = no-change).
 
-        tb = (t != 0).astype(np.int64)
-        pb = (p != 0).astype(np.int64)
-        self.bin_cm += np.bincount(tb * 2 + pb, minlength=4).reshape(2, 2)
+        Two tensors are counted on their own device (GPU during training), so the
+        threshold sweep doesn't drag every map back to the CPU.
+        """
+        nn_ = self.n * self.n
+        if isinstance(true_map, torch.Tensor) and isinstance(pred_map, torch.Tensor):
+            t = true_map.long().flatten()
+            p = pred_map.to(t.device).long().flatten()
+            cm = torch.bincount(t * self.n + p, minlength=nn_).reshape(self.n, self.n)
+            cm = cm.cpu().numpy()
+        else:
+            t = _to_numpy(true_map).ravel()
+            p = _to_numpy(pred_map).ravel()
+            cm = np.bincount(t * self.n + p, minlength=nn_).reshape(self.n, self.n)
+        self.cm += cm
+        # Binary change is just the 7x7 matrix folded at "is it class 0".
+        self.bin_cm += np.array([[cm[0, 0], cm[0, 1:].sum()],
+                                 [cm[1:, 0].sum(), cm[1:, 1:].sum()]], dtype=np.int64)
 
     # --- binary change ------------------------------------------------------
     def binary_iou(self):

@@ -1,4 +1,4 @@
-"""Siamese ResNet-18 / U-Net with two semantic heads and one change head.
+"""Siamese ResNet-18/34 U-Net with two semantic heads and one change head.
 
 Imported by both train.py and analyze.py/api.py so the architecture can never
 drift between training and serving.
@@ -26,7 +26,11 @@ import torchvision
 from classes import N_SEM
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL_RESNET18 = ROOT / "weights" / "resnet18_imagenet.pt"
+BACKBONES = ("resnet18", "resnet34")
+
+
+def local_weights(backbone):
+    return ROOT / "weights" / f"{backbone}_imagenet.pt"
 
 
 def _conv_block(cin, cout):
@@ -41,21 +45,28 @@ def _conv_block(cin, cout):
 
 
 class Encoder(nn.Module):
-    """ResNet-18 trunk exposing features at 1/2, 1/4, 1/8, 1/16 and 1/32."""
+    """ResNet-18/34 trunk exposing features at 1/2, 1/4, 1/8, 1/16 and 1/32.
 
-    def __init__(self, pretrained=True):
+    Both backbones have the same channel widths, so the decoder doesn't care which.
+    """
+
+    def __init__(self, pretrained=True, backbone="resnet18"):
         super().__init__()
-        r = torchvision.models.resnet18(weights=None)
+        if backbone not in BACKBONES:
+            raise ValueError(f"backbone must be one of {BACKBONES}, got {backbone!r}")
+        r = getattr(torchvision.models, backbone)(weights=None)
         if pretrained:
-            if not LOCAL_RESNET18.exists():
+            path = local_weights(backbone)
+            if not path.exists():
+                enum = {"resnet18": "ResNet18_Weights", "resnet34": "ResNet34_Weights"}[backbone]
                 raise FileNotFoundError(
-                    f"{LOCAL_RESNET18} missing. Weights are loaded from disk, never "
+                    f"{path} missing. Weights are loaded from disk, never "
                     f"fetched, so the demo works with the wifi off. Re-create it with:\n"
                     f"  python -c \"import torch,torchvision as tv;"
-                    f"torch.save(tv.models.resnet18(weights=tv.models.ResNet18_Weights."
-                    f"IMAGENET1K_V1).state_dict(),r'{LOCAL_RESNET18}')\""
+                    f"torch.save(tv.models.{backbone}(weights=tv.models.{enum}."
+                    f"IMAGENET1K_V1).state_dict(),r'{path}')\""
                 )
-            r.load_state_dict(torch.load(LOCAL_RESNET18, map_location="cpu", weights_only=True))
+            r.load_state_dict(torch.load(path, map_location="cpu", weights_only=True))
         self.stem = nn.Sequential(r.conv1, r.bn1, r.relu)   # 64ch  @ 1/2
         self.pool = r.maxpool
         self.layer1 = r.layer1                              # 64ch  @ 1/4
@@ -98,9 +109,9 @@ class Decoder(nn.Module):
 
 
 class SCDNet(nn.Module):
-    def __init__(self, pretrained=True, feat_ch=64):
+    def __init__(self, pretrained=True, feat_ch=64, backbone="resnet18"):
         super().__init__()
-        self.encoder = Encoder(pretrained)
+        self.encoder = Encoder(pretrained, backbone)
         self.decoder = Decoder(feat_ch)
         self.head_sem = nn.Conv2d(feat_ch, N_SEM, 1)
         self.head_chg = nn.Conv2d(feat_ch * 2, 1, 1)
@@ -115,14 +126,46 @@ class SCDNet(nn.Module):
         return self.head_sem(f1), self.head_sem(f2), self.head_chg(pair)
 
     @torch.no_grad()
-    def predict(self, im1, im2, thresh=0.5):
+    def predict_probs(self, im1, im2, tta=False):
+        """-> (sem1, sem2, change) probabilities: 6-class softmax x2 and a sigmoid map.
+
+        With tta, outputs are averaged over identity / h-flip / v-flip / both, each
+        flipped back before averaging, so the labels never move.
+        """
+        flips = [(), (-1,), (-2,), (-2, -1)] if tta else [()]
+        s1, s2, c = [], [], []
+        for dims in flips:
+            a, b = (im1.flip(dims), im2.flip(dims)) if dims else (im1, im2)
+            o1, o2, oc = self.forward(a, b)
+            if dims:
+                o1, o2, oc = o1.flip(dims), o2.flip(dims), oc.flip(dims)
+            s1.append(o1.float().softmax(1))
+            s2.append(o2.float().softmax(1))
+            c.append(torch.sigmoid(oc.float()[:, 0]))
+        mean = lambda xs: torch.stack(xs).mean(0)
+        return mean(s1), mean(s2), mean(c)
+
+    @torch.no_grad()
+    def predict(self, im1, im2, thresh=0.5, tta=False):
         """-> (y1, y2, change) as int64 0..6 maps, semantics zeroed outside change."""
-        sem1, sem2, chg = self.forward(im1, im2)
-        change = (torch.sigmoid(chg[:, 0]) > thresh)
+        sem1, sem2, chg = self.predict_probs(im1, im2, tta)
+        change = chg > thresh
         p1 = sem1.argmax(1) + 1
         p2 = sem2.argmax(1) + 1
         return p1 * change, p2 * change, change
 
 
-def build_model(pretrained=True, device="cuda"):
-    return SCDNet(pretrained=pretrained).to(device)
+def build_model(pretrained=True, device="cuda", backbone="resnet18"):
+    return SCDNet(pretrained=pretrained, backbone=backbone).to(device)
+
+
+def load_checkpoint(path, device="cuda"):
+    """-> (model in eval mode, ckpt). The backbone comes from the checkpoint's own
+    args, so older ResNet-18 checkpoints keep loading. Inference settings tuned at
+    the end of training live in ckpt["thresh"] / ckpt["tta"]."""
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+    backbone = ckpt.get("args", {}).get("backbone", "resnet18")
+    model = build_model(pretrained=False, device=device, backbone=backbone)
+    model.load_state_dict(ckpt["model"])
+    model.eval()
+    return model, ckpt
