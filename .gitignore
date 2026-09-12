@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Data: the SECOND dataset is a junction to C:\dataa\second, not repo content.
+data/second
+data/analyzed/
+data/class_weights.json
+uploads/
+
+# Checkpoints. weights/resnet18_imagenet.pt IS committed (see below) so the demo
+# never needs the network; the trained checkpoints are too large for git.
+weights/*.pt
+!weights/resnet18_imagenet.pt
+weights/history.json
+weights/final_metrics.json
+
+# Logs
+*.log
