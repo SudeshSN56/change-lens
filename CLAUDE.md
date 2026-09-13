@@ -142,13 +142,9 @@ cd frontend && npm run dev                             # expects API at http://l
 1–4. (done 2026-09-13) run 3 evaluated, `index.json` rebuilt, full flow checked. A run 3 API was
    left on port **8001** (log `api_run3.log`); a stale run-1-index API from an earlier session was
    still on 8000 (PID 10140) and could not be stopped from Claude. Use 8001, or kill 8000 and restart.
-5. Write `requirements.txt` (or pyproject) pinning torch 2.5.1+cu121 and the rest.
-6. Add a `.gitignore` — `.venv/`, `data/`, `weights/`, `uploads/`, `*.log`, `frontend/node_modules/`
-   are all currently untracked and should stay out of git.
-7. Git: branch is now `main` with an "Initial project commit: Change Lens" (b98c201). The run 3
-   training changes (model/train/dataset/metrics/analyze/api), the API endpoints and the whole
-   frontend redesign are uncommitted. Commit once run 3 is evaluated.
-8. README for the repo root (frontend has its own default Vite README).
+5–8. (done 2026-09-13, commit 1f6082b) `requirements.txt` (with cu121 index), `.gitignore`
+   (history.json + final_metrics.json are committed as evidence), README with results table and
+   one-command demo, everything committed on `main`.
 9. (done via API) upload flow works; not yet clicked through the drop zones in a real browser.
 
 ## 7. Gotchas
