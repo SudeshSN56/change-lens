@@ -1,3 +1,5 @@
+# torch/torchvision/torchaudio are CUDA 12.1 builds, served from the PyTorch index.
+--extra-index-url https://download.pytorch.org/whl/cu121
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1

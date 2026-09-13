@@ -18,8 +18,7 @@ uploads/
 weights/*.pt
 !weights/resnet18_imagenet.pt
 weights/run1_baseline/
-weights/history.json
-weights/final_metrics.json
+# history.json and final_metrics.json ARE committed: small, and they back the README numbers.
 
 # Logs
 *.log

@@ -1,4 +1,5 @@
-export const API = import.meta.env.VITE_API ?? "http://localhost:8000";
+// Dev server talks to the API on :8000; a production build is served by the API itself, so same-origin.
+export const API = import.meta.env.VITE_API ?? (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 export const media = (p) => (!p ? "" : /^(https?:|blob:|data:)/.test(p) ? p : API + p);
 

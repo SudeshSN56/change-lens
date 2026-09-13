@@ -13,7 +13,7 @@ labelled **only inside changed regions**.
 
 | | |
 |---|---|
-| **Model** | Siamese ResNet-18 / U-Net — two semantic heads (6 classes) + one binary change head |
+| **Model** | Siamese ResNet-34 / U-Net — two semantic heads (6 classes) + one binary change head |
 | **Search** | Rule-based query parser over a precomputed JSON index. No inference at query time, no LLM anywhere |
 | **Upload** | Analyze any two images live, then find the 5 most similar changes already in the index |
 
@@ -44,6 +44,42 @@ the *changed region*. Every table in the UI prints its denominator
 
 ---
 
+## Results
+
+Scored on the 742 held-out test pairs, which were used for neither training nor
+model selection (the best checkpoint is picked on a separate 223-pair validation
+slice carved out of the training split).
+
+| | Run 1 (baseline) | **Run 3 (shipped)** |
+|---|---|---|
+| Backbone | ResNet-18 | ResNet-34 |
+| **SeK** (SECOND's headline metric) | 0.144 | **0.192** |
+| Change IoU | 0.467 | **0.544** |
+| Change precision / recall | 0.79 / 0.53 | 0.74 / **0.67** |
+| Semantic mIoU (changed area) | 0.673 | **0.676** |
+
+Per-class IoU (run 3): buildings 0.85 · ground 0.73 · playgrounds 0.73 · water 0.64 ·
+low vegetation 0.62 · tree 0.49.
+
+What changed between runs, and why:
+
+- **Run 1 under-predicted change** (recall 0.53). Changed pixels are ~20% of the data
+  and the BCE was unweighted. Since the semantic heads learn only inside changed
+  pixels, missed change also starved them.
+- **Run 3 fixes the imbalance** with BCE `pos_weight≈2` + soft Dice on the change head,
+  adds a semantic-consistency loss (the two dates' class predictions are pulled
+  together where nothing changed and pushed apart where the class changed), and
+  moves to a ResNet-34 encoder.
+- **The threshold is tuned on validation, not test.** The change threshold is swept
+  0.15–0.75 with 4-way flip TTA and the winner (0.55) is stored in the checkpoint.
+  Without tuning or TTA, test SeK is 0.182, still well above the baseline.
+- Validation SeK peaked at epoch 28 of 80 and then drifted down while training loss
+  kept falling (overfitting), so the shipped checkpoint is epoch 28.
+
+Full numbers: `weights/final_metrics.json`.
+
+---
+
 ## Setup
 
 Requires Python 3.11 with a CUDA build of PyTorch, and Node 18+.
@@ -64,39 +100,53 @@ It must contain `im1/`, `im2/`, `label1/`, `label2/`, each with the same 2,968
 
 ### The pretrained weights are on disk, not on the network
 
-`weights/resnet18_imagenet.pt` is committed. `model.py` loads from that file and
-never calls `weights=...`, so training and inference both work with the wifi off.
-If it is ever missing:
+`weights/resnet18_imagenet.pt` is committed. `model.py` loads ImageNet weights from
+`weights/resnet{18,34}_imagenet.pt` and never calls `weights=...`, so training and
+inference both work with the wifi off. The ResNet-34 file is too large to commit;
+recreate either one with:
 
 ```bash
-python -c "import torch,torchvision as tv; torch.save(tv.models.resnet18(weights=tv.models.ResNet18_Weights.IMAGENET1K_V1).state_dict(),'weights/resnet18_imagenet.pt')"
+python -c "import torch,torchvision as tv; torch.save(tv.models.resnet34(weights=tv.models.ResNet34_Weights.IMAGENET1K_V1).state_dict(),'weights/resnet34_imagenet.pt')"
 ```
 
 ---
 
-## Running it
+## Demo (one command)
+
+With `data/analyzed/` and `weights/best.pt` in place, the API serves the built UI itself:
+
+```bash
+cd frontend && npm install && npm run build && cd ..
+./.venv/Scripts/python.exe -m uvicorn api:app --app-dir src --port 8000
+# open http://localhost:8000
+```
+
+Suggested walk-through: **Situation overview** → **Query** (click an example chip,
+note the "Interpreted as" panel) → open a result → swipe the before/after viewer →
+toggle **Model prediction / Ground truth** → **Analyze imagery** with any pair from
+`data/second/im1` + `im2`.
+
+## Rebuilding from scratch
 
 ```bash
 # 1. split — writes data/splits/{train,test}.txt once, then refuses to overwrite
-python src/make_split.py
+./.venv/Scripts/python.exe src/make_split.py
 
-# 2. train — ~2 h for 40 epochs on an 8 GB RTX 4060
-PYTHONPATH=src python src/train.py
+# 2. train (run 3 config) — ~14 min/epoch on an 8 GB RTX 4060; val SeK peaks
+#    around epoch 30, so 35 epochs is enough. Add --smoke for a 1-minute check.
+PYTHONPATH=src ./.venv/Scripts/python.exe src/train.py --backbone resnet34 --epochs 35 --batch-size 8 --workers 4
 
 # 3. precompute — 742 records + 742 overlays, no inference needed afterwards
-PYTHONPATH=src python src/analyze.py                # model  -> index.json
-PYTHONPATH=src python src/analyze.py --source gt    # truth  -> index_gt.json
+PYTHONPATH=src ./.venv/Scripts/python.exe src/analyze.py                # model  -> index.json
+PYTHONPATH=src ./.venv/Scripts/python.exe src/analyze.py --source gt    # truth  -> index_gt.json
 
-# 4. serve
-./.venv/Scripts/uvicorn.exe api:app --app-dir src --port 8000
-
-# 5. UI
-cd frontend && npm install && npm run dev           # http://localhost:5173
+# 4. serve API + built UI on :8000 (see Demo), or for UI development:
+cd frontend && npm run dev                                              # http://localhost:5173
 ```
 
-`analyze.py` reads `weights/best.pt`. The API falls back to `index_gt.json` if
-`index.json` does not exist yet, so the query and gallery views work before the
-model has finished training.
+`analyze.py` reads `weights/best.pt`, including the tuned threshold and TTA flag
+stored in it. The API loads the index at startup (restart it after re-running
+`analyze.py`) and falls back to `index_gt.json` if `index.json` does not exist yet.
 
 ---
 
@@ -149,9 +199,9 @@ considered product.
 src/
   classes.py    class palette, RGB↔index LUT, query vocabulary — imported everywhere
   dataset.py    paired loading + augmentation (incl. temporal swap)
-  model.py      Siamese ResNet-18/U-Net; shared by train and serve
+  model.py      Siamese ResNet-18/34 U-Net; shared by train and serve
   metrics.py    binary mIoU, SeK, per-class IoU
-  train.py      40 epochs, bf16, cosine + warmup, best-by-SeK
+  train.py      bf16, cosine + warmup, best-by-val-SeK, threshold sweep + TTA, final test report
   analyze.py    record schema + precompute; build_record() is shared with /api/analyze
   overlay.py    the baked 512×512 overlay PNG
   metadata.py   deterministic synthetic geo/date/sensor

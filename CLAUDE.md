@@ -77,6 +77,15 @@ cd frontend && npm run dev                             # expects API at http://l
 - Model, metrics (SeK), training loop with best/last checkpointing and per-epoch history.
 - Full analysis pipeline: per-pair records, overlays, index build.
 - Rule-based query parser (10 patterns), search with relaxation fallback, similarity ranking.
+- **Run 3 finished (2026-09-13) and is the kept model.** best.pt = epoch 28 (val SeK peaked
+  there at 0.181, then slowly fell to 0.156 by epoch 80 as train loss kept dropping: overfitting;
+  next time 30–35 epochs is enough). Test, tuned (thresh 0.55 + flip TTA): SeK **0.192**, change
+  IoU 0.544, sem mIoU 0.676, P 0.74 / R 0.67. Plain (0.5, no TTA): SeK 0.182. Run 1 was 0.144.
+  `index.json` rebuilt from it (742 records; run 1 index kept as `index_run1.json`).
+- End-to-end check passed on the run 3 API: overview, query, explorer, tile assessment,
+  GT toggle, similar tiles, and `/api/analyze` upload (~3.6 s on CUDA, matches the index record).
+- Production builds now call the API same-origin (`constants.js`: `VITE_API` → dev :8000 → `""`),
+  so the built UI works on whatever port the API serves it from.
 - FastAPI backend with all endpoints incl. upload-and-analyze.
 - React frontend: query view with example chips, gallery with paging, upload drop zones,
   detail view with a Model / Ground-Truth toggle.
@@ -108,6 +117,10 @@ cd frontend && npm run dev                             # expects API at http://l
   - `--smoke` does a ~1 min end-to-end check into `weights/smoke/`; it passed before launch.
   It overwrites `weights/best.pt`, `last.pt`, `history.json` (run 1 is safe in `run1_baseline/`).
   Compare the tuned test SeK with run 1 (0.144) and keep the better run.
+  **Timing:** launched 00:51 on 2026-09-13; ~3 s/iteration → ~13–14 min/epoch (250 iters + val)
+  → ~17–18 h total, expected finish ~6–7 PM 2026-09-13. Early losses were falling normally
+  (total 5.88 → 4.47 over the first 100 iters, stderr empty). 3 s/iter is slow for ResNet-34 at
+  bs 8; a Windows dataloader bottleneck is suspected but unconfirmed.
   Target for the slide: SeK ~0.20 is competitive on SECOND.
 - **Index files exist** (checked 2026-09-13): `index_gt.json` (GT, complete) and `index.json`
   (model, built 2026-09-12 from the **run 1** checkpoint). `index.json` must be rebuilt after run 3.
@@ -118,23 +131,25 @@ cd frontend && npm run dev                             # expects API at http://l
   (headless Edge) against the live API; `npm run build` passes, oxlint has only warnings.
   Change levels: Severe ≥40%, High ≥25%, Moderate ≥10%, Low. "Activities" group the 30
   transitions (construction, removal, clearing, water, regrowth, veg shift, other) — frontend only.
-  Upload flow (/api/analyze) not yet exercised in the new UI.
+  Upload flow (/api/analyze) not yet exercised in the new UI (avoided loading the model on the
+  GPU while training runs).
+- **API dev server** was started from a Claude session on 2026-09-13 (port 8000, log `api_dev.log`).
+  It serves the built UI from `frontend/dist` at http://localhost:8000, so no Vite dev server is
+  needed for a demo — just `npm run build` after frontend changes. It dies with its session.
 
 ## 6. Status — remaining
 
-1. Let run 3 finish all 80 epochs; read `weights/final_metrics.json` (tuned vs plain test SeK).
-2. (done) `index_gt.json` exists.
-3. Re-run `analyze.py` (model source) against the final run 3 `weights/best.pt` to rebuild
-   `index.json` — the current one is from run 1. Restart the API afterwards (index loads at startup).
-4. Start the API + frontend together and walk the full flow end to end
-   (query → results → detail → GT toggle → upload).
+1–4. (done 2026-09-13) run 3 evaluated, `index.json` rebuilt, full flow checked. A run 3 API was
+   left on port **8001** (log `api_run3.log`); a stale run-1-index API from an earlier session was
+   still on 8000 (PID 10140) and could not be stopped from Claude. Use 8001, or kill 8000 and restart.
 5. Write `requirements.txt` (or pyproject) pinning torch 2.5.1+cu121 and the rest.
 6. Add a `.gitignore` — `.venv/`, `data/`, `weights/`, `uploads/`, `*.log`, `frontend/node_modules/`
    are all currently untracked and should stay out of git.
-7. Nothing in this project is committed yet. Branch is `master`; the last two commits are
-   unrelated leftovers ("Remove repository contents", "Add tic-tac-toe game"). Decide on the
-   branch/commit story before the first real commit.
+7. Git: branch is now `main` with an "Initial project commit: Change Lens" (b98c201). The run 3
+   training changes (model/train/dataset/metrics/analyze/api), the API endpoints and the whole
+   frontend redesign are uncommitted. Commit once run 3 is evaluated.
 8. README for the repo root (frontend has its own default Vite README).
+9. (done via API) upload flow works; not yet clicked through the drop zones in a real browser.
 
 ## 7. Gotchas
 
@@ -143,5 +158,10 @@ cd frontend && npm run dev                             # expects API at http://l
   or from a working directory where that resolves.
 - The API loads the index into RAM at startup but loads the model lazily on first `/api/analyze`,
   so query/gallery still work without a checkpoint.
+- The user is token-cost-conscious: while training runs, stay idle and don't poll logs unless asked.
+- The Claude-in-Chrome extension may not be connected. For visual checks, headless Edge works:
+  `"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless=new --disable-gpu
+  --user-data-dir=<scratch> --window-size=1440,1500 --virtual-time-budget=8000
+  --screenshot=<out.png> "http://localhost:8000/#/"`
 - `train.log` and `analyze_gt.log` are full of `\r` progress bars — pipe through
   `tr '\r' '\n' | grep -v '%|'` before reading.
