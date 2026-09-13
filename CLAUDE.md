@@ -82,6 +82,7 @@ cd frontend && npm run dev                             # expects API at http://l
   next time 30–35 epochs is enough). Test, tuned (thresh 0.55 + flip TTA): SeK **0.192**, change
   IoU 0.544, sem mIoU 0.676, P 0.74 / R 0.67. Plain (0.5, no TTA): SeK 0.182. Run 1 was 0.144.
   `index.json` rebuilt from it (742 records; run 1 index kept as `index_run1.json`).
+  What changed before that training run is listed in §4a below.
 - End-to-end check passed on the run 3 API: overview, query, explorer, tile assessment,
   GT toggle, similar tiles, and `/api/analyze` upload (~3.6 s on CUDA, matches the index record).
 - Production builds now call the API same-origin (`constants.js`: `VITE_API` → dev :8000 → `""`),
@@ -89,6 +90,33 @@ cd frontend && npm run dev                             # expects API at http://l
 - FastAPI backend with all endpoints incl. upload-and-analyze.
 - React frontend: query view with example chips, gallery with paging, upload drop zones,
   detail view with a Model / Ground-Truth toggle.
+
+## 4a. Changes made before the long run 3 training (run 1 → run 3)
+
+Why: run 1 (ResNet-18, 40 epochs) plateaued at test SeK 0.144. The change head under-predicted
+(recall 0.53) because changed pixels are only ~20% of the data and BCE was unweighted; that also
+starved the semantic heads, which only learn inside changed regions. Run 2 (pos_weight only) never
+ran, so all fixes went into run 3. Code landed in commit 0476656 (`model.py`, `train.py`,
+`dataset.py`, `metrics.py`, `analyze.py`, `api.py`).
+
+| Area | Run 1 | Run 3 | Where |
+|---|---|---|---|
+| Backbone | ResNet-18 | ResNet-34 (`--backbone`), local ImageNet weights `weights/resnet34_imagenet.pt`; backbone saved in checkpoint args so old ckpts still load | `model.py` (`local_weights`, `build_model`, `load_checkpoint`) |
+| Change loss | plain BCE | BCE with `pos_weight` ≈ 2.0 (`--pos-weight`, auto from data) + soft Dice (`--dice-weight 1`) | `train.py` `dice_loss` |
+| Semantic loss | CE inside changed pixels | + consistency loss (`--sc-weight 1`): cosine pull-together of the two softmaxes on unchanged pixels, push-apart where the class changed | `train.py` `consistency_loss` |
+| Model selection | no separate val split | train.txt split in memory into "fit" (2003 pairs) and "val" (every 10th id, 223 pairs); val picks best.pt, test only for the final report. On-disk split untouched | `dataset.read_ids` |
+| Inference | threshold 0.5, no TTA | 4-way flip TTA (`predict_probs(tta=True)`) + change threshold swept 0.15–0.75 on val; `thresh`/`tta` stored in best.pt and used by `analyze.py` and `api.py` | `model.py` `predict`, `train.py` `tune_threshold` |
+| Reporting | history only | `final_metrics.json` with test scores plain (0.5, no TTA) and tuned | `train.py` `evaluate` |
+| Safety check | — | `--smoke` ~1 min end-to-end run into `weights/smoke/` (passed before launch); `--eval-batches` to cap eval | `train.py` |
+| Epochs | 40 | 80 (overkill: val SeK peaked at epoch 28; use 30–35 next time) | command line |
+
+Command used (with `PYTHONPATH=src`, detached via `Start-Process`, logs `train_run3.log` /
+`train_run3.err.log`):
+`.venv/Scripts/python.exe -u src/train.py --backbone resnet34 --epochs 80 --batch-size 8 --workers 4`
+Speed was ~3 s/iteration (~13–14 min/epoch, ~18 h total); a Windows dataloader bottleneck is
+suspected but unconfirmed. Run 1 weights are backed up in `weights/run1_baseline/`.
+
+Result: test SeK 0.144 → **0.192** (tuned), change IoU 0.467 → 0.544, recall 0.53 → 0.67.
 
 ## 5. Status — in progress (as of 2026-09-13)
 
