@@ -165,6 +165,12 @@ def main():
                     help="val batches per epoch; 0 = the whole val slice")
     ap.add_argument("--resume", default=None,
                     help="checkpoint to resume from, e.g. weights/last.pt")
+    ap.add_argument("--init", default=None,
+                    help="start a NEW run from this checkpoint's model weights (fresh optimizer, "
+                         "schedule and history; backbone taken from the checkpoint)")
+    ap.add_argument("--out", default=None,
+                    help="output directory (default weights/); use a separate one so the "
+                         "live best.pt is not overwritten")
     ap.add_argument("--smoke", action="store_true",
                     help="3 train iters, 2 eval batches, output to weights/smoke/")
     args = ap.parse_args()
@@ -175,7 +181,12 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device != "cuda":
         print("WARNING: no CUDA -- this will take days, not minutes.")
-    out = WEIGHTS / "smoke" if args.smoke else WEIGHTS
+    base = Path(args.out) if args.out else WEIGHTS
+    out = base / "smoke" if args.smoke else base
+    init_ckpt = None
+    if args.init:
+        init_ckpt = torch.load(args.init, map_location=device, weights_only=False)
+        args.backbone = init_ckpt.get("args", {}).get("backbone", "resnet18")
     out.mkdir(parents=True, exist_ok=True)
     max_iters = 3 if args.smoke else None
     eval_limit = 2 if args.smoke else (args.eval_batches or None)
@@ -194,7 +205,12 @@ def main():
                           drop_last=True, **common)
     val_ld = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, **common)
 
-    model = build_model(pretrained=True, device=device, backbone=args.backbone)
+    model = build_model(pretrained=init_ckpt is None, device=device, backbone=args.backbone)
+    if init_ckpt is not None:
+        model.load_state_dict(init_ckpt["model"])
+        print(f"initialised from {args.init} (epoch {init_ckpt.get('epoch')}, "
+              f"val SeK {init_ckpt.get('metrics', {}).get('sek', float('nan')):.4f})")
+        del init_ckpt
     if args.freeze_encoder:
         for p in model.encoder.parameters():
             p.requires_grad = False

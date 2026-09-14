@@ -1,5 +1,32 @@
 CHANGE-LENS SETUP
 
+0) QUICK START - one command does everything (use a normal terminal, not Claude)
+
+   From PowerShell or cmd, in c:\army\change-lens:
+
+      powershell -ExecutionPolicy Bypass -File start.ps1
+
+   or just double-click / run:   start.bat
+
+   What it does (every step is skipped if it is already done):
+   - creates .venv with Python 3.11 and installs requirements.txt (CUDA torch)
+   - checks data\second, writes the split ONLY if data\splits is missing
+   - builds data\analyzed\index_gt.json / index.json if missing (needs weights\best.pt for index.json)
+   - npm install (first time) + npm run build
+   - starts the API, which also serves the UI, then opens http://localhost:8000
+   Press Ctrl+C in that window to stop.
+
+   Options:
+      start.bat -Dev            hot-reload frontend on http://localhost:5173 (API still on :8000)
+      start.bat -Port 8001      use another port (if 8000 is busy)
+      start.bat -NoBrowser      don't open the browser
+
+   Prerequisites it cannot install for you: Python 3.11 (py launcher), Node.js 20+,
+   the SECOND dataset linked at data\second (mklink /J data\second C:\dataa\second),
+   and weights\best.pt (it never trains - see step 5).
+
+   Steps 1-11 below are the same thing done by hand.
+
 1) Create and activate Python environment
 
    cd c:\army\change-lens

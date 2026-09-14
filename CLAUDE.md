@@ -48,6 +48,11 @@ already-working CUDA stack from the base 3.11 install (torch 2.5.1+cu121, torchv
 Note: `python` on PATH is **3.14**, which has a CPU-only torch. Always use the venv
 interpreter or `py -3.11`, never bare `python`.
 
+**One-command start (outside Claude):** `start.bat` or `powershell -ExecutionPolicy Bypass -File start.ps1`
+(`-Dev`, `-Port N`, `-NoBrowser`). Idempotent: venv + requirements, split only if missing, indexes only if
+missing, npm install/build, then runs the API in the foreground and opens the browser. Refuses to start if
+the port is already listening (never kills it). Never trains. Documented in `setup.txt` step 0.
+
 ```bash
 PYTHONPATH=src .venv/Scripts/python.exe src/train.py --epochs 40 --batch-size 8 --workers 4
 .venv/Scripts/python.exe src/analyze.py                # model predictions -> index.json
@@ -118,7 +123,14 @@ suspected but unconfirmed. Run 1 weights are backed up in `weights/run1_baseline
 
 Result: test SeK 0.144 → **0.192** (tuned), change IoU 0.467 → 0.544, recall 0.53 → 0.67.
 
-## 5. Status — in progress (as of 2026-09-13)
+## 5. Status — in progress (as of 2026-09-14)
+
+- **Run 4 (fine-tune from run 3) abandoned 2026-09-14 — run 3 stays the final model. No more training.**
+  It was launched detached (`train_run4.log`), but the process died at epoch 1 iteration 0 (like run 2,
+  likely killed with its session); the user then chose to drop it because training is too slow.
+  `weights/run4/` holds only smoke-test output. The `train.py` flags it added (`--init <ckpt>` loads
+  weights only, `--out <dir>`) are kept. If training is ever revisited, fix speed first (cache decoded
+  images, persistent workers, AMP, ~12–15 epochs) — ~3 s/iter makes runs take many hours.
 
 - **Run 1 (baseline) finished**, 40 epochs, backed up to `weights/run1_baseline/`.
   Plateaued from ~epoch 35: epoch 40 SeK 0.144 (best ~0.147), change IoU 0.467,

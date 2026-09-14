@@ -22,3 +22,5 @@ weights/run1_baseline/
 
 # Logs
 *.log
+# Run 4 was abandoned; only smoke-test checkpoints (~295 MB each, over GitHub's limit).
+weights/run4/
