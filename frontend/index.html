@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Change Lens · Change Intelligence Console</title>
+    <script>
+      // Apply the saved theme before first paint so light mode does not flash dark.
+      try {
+        document.documentElement.setAttribute("data-theme", localStorage.getItem("cl-theme") === "light" ? "light" : "dark");
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

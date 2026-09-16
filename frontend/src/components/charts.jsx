@@ -232,7 +232,7 @@ function CityPlot({ city, points, onOpen }) {
             onClick={() => hover && onOpen(hover.pair_id)}
             style={{ cursor: hover ? "pointer" : "crosshair" }}
             role="img"
-            aria-label={`${city.name}: ${points.length} tiles at synthetic positions`}
+            aria-label={`${city.name}: ${points.length} tiles`}
           >
             {[1, 2, 3].map((k) => (
               <g key={k}>

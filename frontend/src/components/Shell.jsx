@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { CLASSES, fmtInt } from "../lib/constants";
+import { useTheme } from "../lib/hooks";
 import { Icon } from "./Icons";
 import { Swatch } from "./ui";
 
@@ -25,14 +26,11 @@ function Clock() {
 }
 
 export function Shell({ page, health, online, children }) {
+  const [theme, toggleTheme] = useTheme();
   const sourceLabel =
     health?.index_source === "model" ? "Model predictions" : health?.index_source === "ground_truth" ? "Ground truth" : "None";
   return (
     <div className="app">
-      <div className="banner" role="note">
-        <span className="banner-dot" />
-        Demonstration system · SECOND aerial dataset · coordinates, dates and platform are synthetic
-      </div>
       <div className="shell">
         <aside className="sidebar">
           <a className="brand" href="#/">
@@ -67,19 +65,6 @@ export function Shell({ page, health, online, children }) {
             </ul>
             <p className="side-note">Changed areas are coloured by what the land became. Unchanged ground is greyscale.</p>
           </div>
-
-          <div className="side-foot mono">
-            <div>
-              <span>MODEL</span>Siamese ResNet U-Net
-            </div>
-            <div>
-              <span>INDEX</span>
-              {health ? `${fmtInt(health.n_records)} held-out pairs` : "—"}
-            </div>
-            <div>
-              <span>SEARCH</span>Rules, no inference
-            </div>
-          </div>
         </aside>
 
         <div className="main">
@@ -112,6 +97,16 @@ export function Shell({ page, health, online, children }) {
             <div className="tb-clock">
               <Clock />
             </div>
+            <button
+              type="button"
+              className="theme-toggle no-print"
+              onClick={toggleTheme}
+              title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+            >
+              <Icon name={theme === "light" ? "moon" : "sun"} />
+              {theme === "light" ? "Dark" : "Light"}
+            </button>
           </header>
           <main className="content">{children}</main>
         </div>

@@ -16,6 +16,27 @@ export const postJSON = (path, body) =>
   }).then(readJSON);
 export const postForm = (path, form) => fetch(API + path, { method: "POST", body: form }).then(readJSON);
 
+/** Colour theme, persisted per browser. Dark is the default look. */
+export function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    try {
+      if (localStorage.getItem("cl-theme") === "light") return "light";
+    } catch {
+      /* storage blocked */
+    }
+    return "dark";
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("cl-theme", theme);
+    } catch {
+      /* storage blocked */
+    }
+  }, [theme]);
+  return [theme, () => setTheme((t) => (t === "light" ? "dark" : "light"))];
+}
+
 /** Holds the previous data while a new path loads, so views dim instead of flashing. */
 export function useJSON(path) {
   const [state, setState] = useState({ data: null, error: null, loading: Boolean(path) });

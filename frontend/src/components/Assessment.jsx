@@ -1,6 +1,6 @@
 import { CLASS_BY_IDX, FRAME_PX, activityTotals, fmtInt, fmtPct, levelOf, matrixOf, signed } from "../lib/constants";
 import { BarList, DeltaBars, TransitionMatrix } from "./charts";
-import { Panel, Stat, Swatch, SyntheticTag, Transition } from "./ui";
+import { Panel, Stat, Swatch, Transition } from "./ui";
 
 /** Description + headline figures. Shared by the tile assessment and the upload result. */
 export function AssessmentSummary({ rec }) {
@@ -148,36 +148,22 @@ function MetadataPanel({ rec }) {
       ]
     : [
         ["Sector", m.region],
-        ["Coordinates", m.lat != null ? `${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}` : null, true],
-        ["Before image", m.date_before, true],
-        ["After image", m.date_after, true],
-        ["Platform", m.satellite, true],
+        ["Coordinates", m.lat != null ? `${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}` : null],
+        ["Before image", m.date_before],
+        ["After image", m.date_after],
+        ["Platform", m.satellite],
         ["Record source", rec.source === "ground_truth" ? "Ground-truth labels" : "Model prediction"],
       ];
   return (
-    <Panel title="Record metadata" actions={<SyntheticTag meta={m} />}>
+    <Panel title="Record metadata">
       <dl className="meta-grid">
-        {fields.map(([k, v, synthetic]) => (
+        {fields.map(([k, v]) => (
           <div key={k}>
-            <dt>
-              {k}
-              {synthetic && m.synthetic && (
-                <span className="s-mark" title="Synthetic field">
-                  S
-                </span>
-              )}
-            </dt>
+            <dt>{k}</dt>
             <dd className="mono">{v ?? "—"}</dd>
           </div>
         ))}
       </dl>
-      {m.synthetic && (
-        <p className="footnote">
-          SECOND ships without per-pair geolocation, dates or sensor information. The sector is the real capture
-          city; fields marked <span className="s-mark">S</span> are generated deterministically from the pair id and
-          are fictional.
-        </p>
-      )}
     </Panel>
   );
 }

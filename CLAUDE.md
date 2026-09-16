@@ -173,6 +173,16 @@ Result: test SeK 0.144 → **0.192** (tuned), change IoU 0.467 → 0.544, recall
   transitions (construction, removal, clearing, water, regrowth, veg shift, other) — frontend only.
   Upload flow (/api/analyze) not yet exercised in the new UI (avoided loading the model on the
   GPU while training runs).
+- **Frontend trim + light mode (2026-09-16).** Removed from the UI: the top demo banner, the
+  sidebar MODEL/INDEX/SEARCH spec block, the `Synthetic` tag (`SyntheticTag` in `ui.jsx`), the
+  per-field `S` superscript and the "SECOND ships without per-pair geolocation..." footnote in
+  the record-metadata panel. The synthetic fields themselves (coordinates, before/after image
+  dates, platform) still display, and records still carry `"synthetic": true` in the API — only
+  the labelling was dropped. Added a **Light / Dark toggle** in the topbar: `useTheme` in
+  `lib/hooks.js` writes `data-theme` on `<html>` and persists to `localStorage["cl-theme"]`,
+  `index.html` has a tiny inline script that applies it before first paint, and `theme.css` has a
+  `:root[data-theme="light"]` block (variables + overrides for the hardcoded dark colours).
+  Dark stays the default. Checked in headless Edge on the overview and tile-assessment pages.
 - **API dev server** was started from a Claude session on 2026-09-13 (port 8000, log `api_dev.log`).
   It serves the built UI from `frontend/dist` at http://localhost:8000, so no Vite dev server is
   needed for a demo — just `npm run build` after frontend changes. It dies with its session.

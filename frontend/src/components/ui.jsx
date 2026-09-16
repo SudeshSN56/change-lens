@@ -61,18 +61,6 @@ export function SourceBadge({ rec }) {
   return <span className="tag tag-model">Model prediction</span>;
 }
 
-export function SyntheticTag({ meta, force = false }) {
-  if (!force && !meta?.synthetic) return null;
-  return (
-    <span
-      className="tag tag-synth"
-      title="SECOND ships no geolocation, dates or sensor data. These fields are generated deterministically from the pair id."
-    >
-      Synthetic
-    </span>
-  );
-}
-
 export function Panel({ title, sub, actions, children, className = "", flush = false }) {
   return (
     <section className={`panel ${className}`}>

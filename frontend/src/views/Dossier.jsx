@@ -10,7 +10,6 @@ import {
   Panel,
   Segmented,
   SourceBadge,
-  SyntheticTag,
   Transition,
 } from "../components/ui";
 import { dominantActivity, fmtPct, levelOf, media, signed } from "../lib/constants";
@@ -164,7 +163,6 @@ export default function Dossier({ id, params }) {
                 {m.date_before} → {m.date_after}
               </span>
             )}
-            <SyntheticTag meta={m} />
           </div>
         </div>
         <div className="dossier-actions no-print">

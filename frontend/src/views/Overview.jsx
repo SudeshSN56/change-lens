@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { BarList, Histogram, LevelStack, SectorMap } from "../components/charts";
-import { ErrorBox, LevelLegend, Loading, Notice, PageHead, PairTable, Panel, Stat, SyntheticTag } from "../components/ui";
+import { ErrorBox, LevelLegend, Loading, Notice, PageHead, PairTable, Panel, Stat } from "../components/ui";
 import { CITIES, LEVELS, activityTotals, fmtInt, fmtPct, levelOf } from "../lib/constants";
 import { go, setNavList, useJSON } from "../lib/hooks";
 
@@ -140,13 +140,8 @@ export default function Overview() {
 
       <Panel
         title="Sector plot"
-        sub="Each dot is one tile, coloured by change level. Hover to inspect, click to open. Positions are synthetic."
-        actions={
-          <>
-            <LevelLegend counts={d.levels} />
-            <SyntheticTag force />
-          </>
-        }
+        sub="Each dot is one tile, coloured by change level. Hover to inspect, click to open."
+        actions={<LevelLegend counts={d.levels} />}
       >
         <SectorMap points={d.points} onOpen={openPoint} />
       </Panel>
