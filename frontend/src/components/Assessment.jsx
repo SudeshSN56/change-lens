@@ -138,22 +138,24 @@ function CategoryTable({ rows }) {
 
 function MetadataPanel({ rec }) {
   const m = rec.metadata ?? {};
-  const fields = m.uploaded
-    ? [
-        ["Origin", "Uploaded by operator"],
-        ["Analysis id", rec.pair_id],
-        ["Native size · before", m.native_size_before?.join(" × ")],
-        ["Native size · after", m.native_size_after?.join(" × ")],
-        ["Record source", "Model prediction"],
-      ]
-    : [
-        ["Sector", m.region],
-        ["Coordinates", m.lat != null ? `${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}` : null],
-        ["Before image", m.date_before],
-        ["After image", m.date_after],
-        ["Platform", m.satellite],
-        ["Record source", rec.source === "ground_truth" ? "Ground-truth labels" : "Model prediction"],
-      ];
+  // Uploaded and indexed records show the same block; an upload only adds the
+  // fields that are specific to it (its analysis id and the native sizes).
+  const fields = [
+    ["Sector", m.region],
+    ["Coordinates", m.lat != null ? `${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}` : null],
+    ["Before image", m.date_before],
+    ["After image", m.date_after],
+    ["Platform", m.satellite],
+    ["Record source", rec.source === "ground_truth" ? "Ground-truth labels" : "Model prediction"],
+    ...(m.uploaded
+      ? [
+          ["Matched tile", m.matched_pair_id ?? "None — unseen imagery"],
+          ["Analysis id", rec.pair_id],
+          ["Native size · before", m.native_size_before?.join(" × ")],
+          ["Native size · after", m.native_size_after?.join(" × ")],
+        ]
+      : []),
+  ];
   return (
     <Panel title="Record metadata">
       <dl className="meta-grid">

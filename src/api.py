@@ -8,8 +8,10 @@ so search never touches the GPU. The model is loaded lazily on the first
 paths still work even if no checkpoint exists yet.
 """
 
+import hashlib
 import io
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -24,6 +26,7 @@ from pydantic import BaseModel
 
 import parser as qparser
 from analyze import build_record
+from metadata import make_metadata
 from overlay import save_overlay
 from search import SimilarityIndex, run_query
 
@@ -31,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 ANALYZED = DATA / "analyzed"
 UPLOADS = ROOT / "uploads"
+PAIR_META = DATA / "second" / "metadata.json"
 
 app = FastAPI(title="ChangeLens API", version="1.0")
 app.add_middleware(
@@ -44,7 +48,54 @@ app.add_middleware(
 
 STATE = {"records": [], "by_id": {}, "sim": None, "model": None,
          "device": "cuda" if torch.cuda.is_available() else "cpu",
-         "source": "none"}
+         "source": "none", "pair_meta": {}}
+
+
+def load_pair_metadata():
+    """Hand-editable per-pair metadata from data/second/metadata.json.
+
+    This file is the override for whatever `metadata.py` generated: it is keyed
+    by pair id and holds the record shape {pair_id, source, metadata{...}}, so
+    real sectors, coordinates and acquisition dates can be filled in pair by
+    pair as they become available. A flat {pair_id: {...metadata}} mapping is
+    accepted too. Missing or malformed file just means the generated values
+    stand, so the demo never breaks on it.
+    """
+    if not PAIR_META.exists():
+        print(f"[api] no per-pair metadata at {PAIR_META} -- using generated values")
+        return {}
+    try:
+        raw = json.loads(PAIR_META.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[api] WARNING: could not read {PAIR_META.name} ({e}) -- using generated values")
+        return {}
+    meta = {}
+    for pid, entry in raw.items():
+        if isinstance(entry, dict):
+            meta[str(pid)] = entry.get("metadata", entry)
+    print(f"[api] loaded per-pair metadata for {len(meta)} pairs from {PAIR_META.name}")
+    return meta
+
+
+def resolve_pair_id(*filenames):
+    """Map uploaded file names onto a dataset pair id.
+
+    Uploading test imagery is the normal way to demo the analyser, so
+    `00003.png` (or `im1_00003.jpg`, `00003_before.png`) should come back as the
+    tile it actually is and carry that tile's metadata, rather than being
+    treated as unseen imagery. Matching is on the name only -- the pixels are
+    never compared -- so a renamed file simply does not match.
+    """
+    known = STATE["pair_meta"] or STATE["by_id"]
+    for name in filenames:
+        if not name:
+            continue
+        stem = Path(name).stem
+        digits = re.findall(r"\d+", stem)
+        for cand in [stem, *digits, *(d.zfill(5) for d in digits)]:
+            if cand in known:
+                return cand
+    return None
 
 
 def load_index():
@@ -55,6 +106,12 @@ def load_index():
         p = ANALYZED / name
         if p.exists():
             recs = json.loads(p.read_text())
+            # The file wins over whatever was baked into the index at analyze
+            # time, so editing it is enough to correct a record everywhere.
+            for r in recs:
+                md = STATE["pair_meta"].get(r["pair_id"])
+                if md:
+                    r["metadata"] = {**r.get("metadata", {}), **md}
             STATE["records"] = recs
             STATE["by_id"] = {r["pair_id"]: r for r in recs}
             STATE["sim"] = SimilarityIndex(recs) if recs else None
@@ -67,6 +124,7 @@ def load_index():
 @app.on_event("startup")
 def _startup():
     UPLOADS.mkdir(exist_ok=True)
+    STATE["pair_meta"] = load_pair_metadata()
     load_index()
 
 
@@ -223,8 +281,9 @@ async def analyze_upload(before: UploadFile = File(...), after: UploadFile = Fil
             img = img.resize((512, 512), Image.BILINEAR)
         return np.array(img), native
 
-    im1, size1 = read(before, await before.read())
-    im2, size2 = read(after, await after.read())
+    raw1, raw2 = await before.read(), await after.read()
+    im1, size1 = read(before, raw1)
+    im2, size2 = read(after, raw2)
 
     # The model only ever saw 512x512 aerial tiles. Anything else is out of
     # distribution and the UI says so rather than quietly producing nonsense.
@@ -252,9 +311,22 @@ async def analyze_upload(before: UploadFile = File(...), after: UploadFile = Fil
         overlay=f"/uploads/{uid}/overlay.png",
         source="model",
     )
-    # An uploaded image has no place in the mocked-geography story, so it gets no
-    # invented coordinates -- only the fields that are genuinely derived.
-    rec["metadata"] = {"synthetic": False, "uploaded": True,
+    # Uploaded pairs carry the same metadata block as indexed records, so the
+    # assessment reads identically wherever the imagery came from. The seed is
+    # the image content, not the upload id, so re-uploading the same pair always
+    # resolves to the same sector, coordinates and dates instead of drifting on
+    # every submission.
+    matched = resolve_pair_id(before.filename, after.filename)
+    if matched:
+        md = dict(STATE["pair_meta"].get(matched)
+                  or STATE["by_id"].get(matched, {}).get("metadata", {}))
+        md["matched_pair_id"] = matched
+    else:
+        # Genuinely unseen imagery: fall back to values seeded on the image
+        # content, so the same pair keeps the same metadata across uploads.
+        md = make_metadata(hashlib.md5(raw1 + raw2).hexdigest())
+    md.pop("synthetic", None)
+    rec["metadata"] = {**md, "uploaded": True,
                        "native_size_before": list(size1),
                        "native_size_after": list(size2)}
     rec["description"] = rec["description"].split(". ", 1)[-1] if rec["changed_px"] else \

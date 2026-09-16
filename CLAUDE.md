@@ -183,9 +183,41 @@ Result: test SeK 0.144 → **0.192** (tuned), change IoU 0.467 → 0.544, recall
   `index.html` has a tiny inline script that applies it before first paint, and `theme.css` has a
   `:root[data-theme="light"]` block (variables + overrides for the hardcoded dark colours).
   Dark stays the default. Checked in headless Edge on the overview and tile-assessment pages.
-- **API dev server** was started from a Claude session on 2026-09-13 (port 8000, log `api_dev.log`).
-  It serves the built UI from `frontend/dist` at http://localhost:8000, so no Vite dev server is
-  needed for a demo — just `npm run build` after frontend changes. It dies with its session.
+- **Uploaded pairs now carry full metadata (2026-09-16).** `/api/analyze` builds the same
+  metadata block as indexed records via `make_metadata`, seeded with `md5(before_bytes +
+  after_bytes)` rather than the upload id, so re-uploading the same pair always resolves to the
+  same sector/coordinates/dates instead of drifting per submission. The record keeps `uploaded:
+  true` plus the derived `native_size_before/after`. `Assessment.jsx` now renders one shared
+  "Record metadata" field list (Sector, Coordinates, Before image, After image, Platform, Record
+  source) for both indexed and uploaded records, appending Analysis id and the native sizes only
+  for uploads. `data/second/metadata.json` holds a hand-editable placeholder record for **all
+  2968 pairs** (train + test), keyed by pair id, in the shape `{pair_id, source, metadata{region,
+  lat, lon, date_before, date_after, satellite}}`. Regenerate it with
+  `PYTHONPATH=src .venv/Scripts/python.exe src/metadata.py --dump data/second/metadata.json`
+  (`dump_all` in `metadata.py`); it is md5-seeded so the values are reproducible. Unlike the
+  generated records it carries **no `synthetic` key** and uses a single platform
+  (`PLACEHOLDER_PLATFORM`, "Airborne optical sensor") for every pair instead of the four rotating
+  descriptors in `SATELLITES`.
+- **`data/second/metadata.json` is now the source of truth for metadata (2026-09-16).** `api.py`
+  loads it at startup (`load_pair_metadata`, `STATE["pair_meta"]`) and merges it over the metadata
+  baked into `index.json`, so editing a record there and restarting the API changes it across the
+  whole UI. Side effect: every indexed tile's Platform now reads "Airborne optical sensor",
+  because the file uses one platform for all pairs. A missing or malformed file is not fatal —
+  it logs a warning and the generated values stand.
+- **Uploads resolve to a dataset tile by file name (2026-09-16).** `resolve_pair_id` in `api.py`
+  tries the file stem, then any digit run in it, then the run zero-padded to 5, against the
+  metadata file (falling back to the index), so uploading `00003.png` / `im1_00003.jpg` /
+  `00003_before.png` shows tile 00003's metadata and a **Matched tile** row in the assessment.
+  Matching is on the name only, never the pixels; an unmatched upload falls back to
+  `make_metadata(md5(before_bytes + after_bytes))` and reads "None — unseen imagery".
+
+- **API dev server** serves the built UI from `frontend/dist` at http://localhost:8000, so no Vite
+  dev server is needed for a demo — just `npm run build` after frontend changes. It dies with its
+  session. Note that uvicorn loads the Python code at startup: after editing anything under `src/`
+  the API must be restarted, while frontend rebuilds are picked up from disk on reload. A stale
+  API plus a fresh build is what makes the metadata panel show all `—`. The 2026-09-13 instance
+  (PID 11696) was stopped with the user's approval on 2026-09-16 and restarted on 8000
+  (log `api.log`) to pick up the metadata changes.
 
 ## 6. Status — remaining
 

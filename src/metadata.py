@@ -16,6 +16,7 @@ point inside the city is fictional -- not the region.
 
 import hashlib
 from datetime import date, timedelta
+from pathlib import Path
 
 # Only generic platform descriptors. Naming a real satellite that did not take
 # these pictures would be a fabrication a judge could check.
@@ -32,6 +33,8 @@ CITIES = [
     ("Chengdu",  30.55, 30.75, 103.95, 104.20),
     ("Shanghai", 31.10, 31.35, 121.35, 121.60),
 ]
+
+PLACEHOLDER_PLATFORM = "Airborne optical sensor"
 
 BEFORE_START, BEFORE_END = date(2014, 1, 1), date(2017, 12, 31)
 AFTER_START, AFTER_END = date(2019, 1, 1), date(2022, 12, 31)
@@ -65,6 +68,41 @@ def make_metadata(pair_id):
     }
 
 
+def dump_all(out_path, ids):
+    """Write one metadata record per pair id to a single JSON file.
+
+        python src/metadata.py --dump data/second/metadata.json
+
+    The file is a placeholder for real provenance: the shape is stable, so the
+    values can be hand-edited pair by pair as actual sectors, coordinates and
+    acquisition dates become available. Regenerating it reproduces exactly the
+    same values, because make_metadata is md5-seeded on the pair id.
+    """
+    import json
+
+    def record(pid):
+        md = make_metadata(pid)
+        # The placeholder file is hand-editable provenance, not a generated
+        # record: it carries no `synthetic` flag, and one platform covers the
+        # whole collection rather than the four rotating descriptors.
+        md.pop("synthetic", None)
+        md["satellite"] = PLACEHOLDER_PLATFORM
+        return {"pair_id": pid, "source": "model", "metadata": md}
+
+    records = {pid: record(pid) for pid in ids}
+    out_path = Path(out_path)
+    out_path.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+    return len(records)
+
+
 if __name__ == "__main__":
-    for pid in ("00003", "00013", "00027"):
-        print(pid, make_metadata(pid))
+    import sys
+
+    if "--dump" in sys.argv:
+        out = sys.argv[sys.argv.index("--dump") + 1]
+        im1 = Path(__file__).resolve().parents[1] / "data" / "second" / "im1"
+        ids = sorted(f.stem for f in im1.glob("*.png"))
+        print(f"wrote {dump_all(out, ids)} records to {out}")
+    else:
+        for pid in ("00003", "00013", "00027"):
+            print(pid, make_metadata(pid))
