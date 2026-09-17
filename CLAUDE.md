@@ -24,13 +24,16 @@ src/                 model + pipeline (all imports are flat: `--app-dir src`)
   parser.py          rule-based NL query parser (regex/keywords only, 10 supported patterns)
   search.py          filter/rank/similarity over the in-memory index + relaxation fallback ladder
   api.py             FastAPI: /api/health /api/pairs /api/pairs/{id} /api/pairs/{id}/similar
-                     /api/query /api/examples /api/stats /api/analyze
+                     /api/query /api/examples /api/stats /api/analyze  + /api/auth/* (see §5)
+  auth.py            JWT (HS256, stdlib) + PBKDF2 user store (data/users.json) + roles viewer/analyst/admin
 frontend/            React 19 + Vite 8, no extra deps. "Command console" UI, hash routing.
   src/App.jsx        routes: #/ overview, #/search?q=, #/explore, #/analyze, #/pair/{id}[?src=gt]
   src/lib/           constants.js (classes, change LEVELS, ACTIVITIES grouping), hooks.js (fetch, router, nav list)
   src/components/    Shell (sidebar/topbar), ui (badges, cards, tables), charts (hand-rolled SVG),
                      Compare (swipe/flicker/side-by-side + magnifier), Assessment (shared tile report)
-  src/views/         Overview, Search, Explorer, Dossier (tile assessment), Analyze (upload)
+  src/views/         Overview, Search, Explorer, Dossier (tile assessment), Analyze (upload),
+                     Login (userid + password), Users (admin account management)
+  src/lib/auth.js    token/user in sessionStorage (per tab), `useAuth`, `hasRole`, sign-in/out ("cl-auth" event)
 data/second          symlink -> /c/dataa/second (im1, im2, label1, label2)
 data/splits/         train.txt (2226 pairs), test.txt (742 pairs)
 data/analyzed/       per-pair {id}.json / {id}_gt.json + overlays/ + index.json / index_gt.json
@@ -210,6 +213,29 @@ Result: test SeK 0.144 → **0.192** (tuned), change IoU 0.467 → 0.544, recall
   `00003_before.png` shows tile 00003's metadata and a **Matched tile** row in the assessment.
   Matching is on the name only, never the pixels; an unmatched upload falls back to
   `make_metadata(md5(before_bytes + after_bytes))` and reads "None — unseen imagery".
+
+- **Login / JWT / RBAC added (2026-09-18).** `src/auth.py` + routes in `api.py`:
+  `POST /api/auth/login {userid,password}` → `{token, user}` (HS256 JWT, 8 h, also set as an
+  httpOnly `cl_token` cookie so `<img src="/media/...">` works), `POST /api/auth/logout`,
+  `GET /api/auth/me`, `POST /api/auth/password`, admin-only `GET/POST /api/auth/users` and
+  `DELETE /api/auth/users/{id}`. Every `/api/*` route except health/login now needs a token
+  (`Depends(current_user)`); `/api/analyze` needs `require("analyst")`; `/media/*` and
+  `/uploads/*` are checked in the `guard_media` middleware (header or cookie). Roles ranked
+  viewer < analyst < admin. Users live in `data/users.json` (gitignored, PBKDF2 hashes, ids
+  upper-cased; login is case-insensitive); it is created on first start with the defaults
+  **JOHNDOE / john@123 (analyst)** and **ADMIN / admin@123 (admin)** — delete the file to
+  regenerate. Signing secret: `CHANGELENS_JWT_SECRET` env or auto-generated `data/.jwt_secret`
+  (gitignored). Frontend: `App.jsx` shows `views/Login.jsx` until `useAuth()` has a user; fetch
+  helpers in `hooks.js` add `Authorization: Bearer` and call `signOut()` on any 401 (back to the
+  login page); `Shell.jsx` shows the user chip + Sign out and filters nav by role (Analyze needs
+  analyst, User accounts needs admin); `#/users` is the admin page. Verified with curl on all
+  role combinations and headless-Edge screenshots (login, overview, users). API restarted on
+  8000 (log `api.log`) with the new code.
+  **Sessions are per-tab and end on leaving the tab (user request, 2026-09-18):** the token is
+  kept in `sessionStorage` (not localStorage), `useAuth` signs out on `visibilitychange` →
+  hidden (calling `/api/auth/logout` with `keepalive` to drop the cookie), and the cookie is a
+  session cookie (no `max_age`). So switching tabs, opening a new tab, or closing the browser
+  all lead back to the login page. The 8 h JWT expiry is just the hard ceiling.
 
 - **API dev server** serves the built UI from `frontend/dist` at http://localhost:8000, so no Vite
   dev server is needed for a demo — just `npm run build` after frontend changes. It dies with its

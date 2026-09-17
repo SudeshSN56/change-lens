@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { API } from "./constants";
 
+import { authHeaders, signOut } from "./auth";
+
 async function readJSON(r) {
   if (r.ok) return r.json();
   const body = await r.json().catch(() => ({}));
+  // A rejected token means the session is over: drop it so the app returns to the login page.
+  if (r.status === 401) signOut({ reason: body.detail || "Session expired", server: false });
   throw new Error(body.detail || `HTTP ${r.status}`);
 }
 
-export const getJSON = (path) => fetch(API + path).then(readJSON);
+const opts = (init = {}) => ({ ...init, credentials: "include", headers: { ...authHeaders(), ...(init.headers || {}) } });
+
+export const getJSON = (path) => fetch(API + path, opts()).then(readJSON);
 export const postJSON = (path, body) =>
-  fetch(API + path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }).then(readJSON);
-export const postForm = (path, form) => fetch(API + path, { method: "POST", body: form }).then(readJSON);
+  fetch(API + path, opts({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).then(readJSON);
+export const deleteJSON = (path) => fetch(API + path, opts({ method: "DELETE" })).then(readJSON);
+export const postForm = (path, form) => fetch(API + path, opts({ method: "POST", body: form })).then(readJSON);
 
 /** Colour theme, persisted per browser. Dark is the default look. */
 export function useTheme() {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { CLASSES, fmtInt } from "../lib/constants";
+import { hasRole, signOut } from "../lib/auth";
 import { useTheme } from "../lib/hooks";
 import { Icon } from "./Icons";
 import { Swatch } from "./ui";
@@ -8,8 +9,14 @@ const NAV = [
   { key: "", label: "Situation overview", icon: "overview", href: "#/" },
   { key: "search", label: "Query", icon: "search", href: "#/search", kbd: "/" },
   { key: "explore", label: "Tile explorer", icon: "grid", href: "#/explore" },
-  { key: "analyze", label: "Analyze imagery", icon: "upload", href: "#/analyze" },
+  { key: "analyze", label: "Analyze imagery", icon: "upload", href: "#/analyze", role: "analyst" },
+  { key: "users", label: "User accounts", icon: "users", href: "#/users", role: "admin" },
 ];
+
+function logout() {
+  signOut();
+  window.location.hash = "/";
+}
 
 function Clock() {
   const [now, setNow] = useState(() => new Date());
@@ -25,8 +32,9 @@ function Clock() {
   );
 }
 
-export function Shell({ page, health, online, children }) {
+export function Shell({ page, health, online, user, children }) {
   const [theme, toggleTheme] = useTheme();
+  const nav = NAV.filter((n) => !n.role || hasRole(n.role, user));
   const sourceLabel =
     health?.index_source === "model" ? "Model predictions" : health?.index_source === "ground_truth" ? "Ground truth" : "None";
   return (
@@ -44,7 +52,7 @@ export function Shell({ page, health, online, children }) {
           </a>
 
           <nav className="nav" aria-label="Primary">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <a key={n.key} href={n.href} className={page === n.key ? "on" : ""} aria-current={page === n.key ? "page" : undefined}>
                 <Icon name={n.icon} />
                 <span>{n.label}</span>
@@ -97,6 +105,19 @@ export function Shell({ page, health, online, children }) {
             <div className="tb-clock">
               <Clock />
             </div>
+            {user && (
+              <div className="tb-user" title={`Signed in as ${user.userid}`}>
+                <span className="tb-avatar">{user.userid.slice(0, 2)}</span>
+                <span className="tb-user-meta">
+                  <b>{user.name || user.userid}</b>
+                  <span className={`tag role-${user.role}`}>{user.role}</span>
+                </span>
+                <button type="button" className="btn sm ghost no-print" onClick={logout} title="Sign out">
+                  <Icon name="logout" />
+                  Sign out
+                </button>
+              </div>
+            )}
             <button
               type="button"
               className="theme-toggle no-print"

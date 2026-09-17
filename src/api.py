@@ -18,13 +18,14 @@ from typing import Optional
 
 import numpy as np
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
 import parser as qparser
+from auth import ROLES, UserStore, decode_jwt, encode_jwt, has_role, load_secret, TOKEN_TTL
 from analyze import build_record
 from metadata import make_metadata
 from overlay import save_overlay
@@ -48,7 +49,51 @@ app.add_middleware(
 
 STATE = {"records": [], "by_id": {}, "sim": None, "model": None,
          "device": "cuda" if torch.cuda.is_available() else "cpu",
-         "source": "none", "pair_meta": {}}
+         "source": "none", "pair_meta": {}, "users": None, "secret": b""}
+
+COOKIE = "cl_token"
+
+
+# --- auth --------------------------------------------------------------------
+def _token_from(request: Request):
+    """Bearer header first (the SPA), then the cookie (so <img src> to /media works)."""
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return request.cookies.get(COOKIE)
+
+
+def current_user(request: Request):
+    token = _token_from(request)
+    claims = decode_jwt(token, STATE["secret"]) if token else None
+    if not claims:
+        raise HTTPException(401, "Not signed in or session expired.")
+    u = STATE["users"].get(claims.get("sub", ""))
+    if u is None:
+        raise HTTPException(401, "Account no longer exists.")
+    return {"userid": u["userid"], "name": u.get("name", ""), "role": u["role"]}
+
+
+def require(role):
+    """Dependency factory: `Depends(require("analyst"))` admits analyst and admin."""
+    def dep(user=Depends(current_user)):
+        if not has_role(user["role"], role):
+            raise HTTPException(403, f"This action needs the {role} role (you are {user['role']}).")
+        return user
+    return dep
+
+
+@app.middleware("http")
+async def guard_media(request: Request, call_next):
+    """Imagery and overlays are static files, so they cannot use Depends; check the
+    token here. The built UI itself and /api routes (which have their own
+    dependencies) pass straight through."""
+    path = request.url.path
+    if path.startswith(("/media/", "/uploads/")):
+        token = _token_from(request)
+        if not token or not decode_jwt(token, STATE["secret"]):
+            return Response("Sign in to view imagery.", status_code=401)
+    return await call_next(request)
 
 
 def load_pair_metadata():
@@ -124,6 +169,8 @@ def load_index():
 @app.on_event("startup")
 def _startup():
     UPLOADS.mkdir(exist_ok=True)
+    STATE["secret"] = load_secret()
+    STATE["users"] = UserStore()
     STATE["pair_meta"] = load_pair_metadata()
     load_index()
 
@@ -173,7 +220,7 @@ def health():
 
 
 @app.get("/api/pairs")
-def list_pairs(limit: int = 60, offset: int = 0, sort: str = "changed_pct"):
+def list_pairs(limit: int = 60, offset: int = 0, sort: str = "changed_pct", user=Depends(current_user)):
     recs = STATE["records"]
     if sort == "changed_pct":
         recs = sorted(recs, key=lambda r: -r["changed_pct_of_frame"])
@@ -184,7 +231,7 @@ def list_pairs(limit: int = 60, offset: int = 0, sort: str = "changed_pct"):
 
 
 @app.get("/api/pairs/{pair_id}")
-def get_pair(pair_id: str, source: Optional[str] = None):
+def get_pair(pair_id: str, source: Optional[str] = None, user=Depends(current_user)):
     """`source=gt` serves the ground-truth analysis of the same pair, which is what
     backs the Model / Ground Truth toggle in the detail view."""
     suffix = "_gt" if source in ("gt", "ground_truth") else ""
@@ -205,7 +252,7 @@ class Query(BaseModel):
 
 
 @app.post("/api/query")
-def query(q: Query):
+def query(q: Query, user=Depends(current_user)):
     f = qparser.parse(q.text, limit=q.limit)
     results, relaxed, note = run_query(STATE["records"], f)
     return {
@@ -222,7 +269,7 @@ def query(q: Query):
 
 
 @app.get("/api/examples")
-def examples():
+def examples(user=Depends(current_user)):
     """The chips on the landing page. Clicking one is how the demo avoids typos."""
     return {"examples": [
         "where did trees become buildings",
@@ -235,7 +282,7 @@ def examples():
 
 
 @app.get("/api/stats")
-def stats():
+def stats(user=Depends(current_user)):
     """Index-wide aggregates for the overview dashboard.
 
     The index drops each pair's transition matrix, but transition_vec is that
@@ -257,7 +304,7 @@ def stats():
 
 
 @app.get("/api/pairs/{pair_id}/similar")
-def similar_pairs(pair_id: str, k: int = 6):
+def similar_pairs(pair_id: str, k: int = 6, user=Depends(current_user)):
     rec = STATE["by_id"].get(pair_id)
     if rec is None:
         raise HTTPException(404, f"unknown pair {pair_id}")
@@ -268,7 +315,8 @@ def similar_pairs(pair_id: str, k: int = 6):
 
 
 @app.post("/api/analyze")
-async def analyze_upload(before: UploadFile = File(...), after: UploadFile = File(...)):
+async def analyze_upload(before: UploadFile = File(...), after: UploadFile = File(...),
+                         user=Depends(require("analyst"))):
     model = get_model()
     uid = uuid.uuid4().hex[:12]
     out_dir = UPLOADS / uid
@@ -344,6 +392,84 @@ async def analyze_upload(before: UploadFile = File(...), after: UploadFile = Fil
                      "trained on 512x512 aerial tiles, so results outside that "
                      "domain are indicative only.") if ood else None,
     }
+
+
+# --- auth routes --------------------------------------------------------------
+class Login(BaseModel):
+    userid: str
+    password: str
+
+
+class UserIn(BaseModel):
+    userid: str
+    password: Optional[str] = None
+    role: str = "viewer"
+    name: str = ""
+
+
+class PasswordIn(BaseModel):
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: Login, response: Response):
+    u = STATE["users"].authenticate(body.userid, body.password)
+    if u is None:
+        raise HTTPException(401, "Invalid user id or password.")
+    token = encode_jwt({"sub": u["userid"], "role": u["role"], "name": u.get("name", "")},
+                       STATE["secret"])
+    # Cookie is what lets plain <img src="/media/..."> load; the SPA also sends
+    # the token as a Bearer header for every fetch. No max_age: a session cookie
+    # that the browser drops when it closes (the SPA clears it on sign-out anyway).
+    response.set_cookie(COOKIE, token, httponly=True, samesite="lax")
+    return {"token": token, "token_type": "bearer", "expires_in": TOKEN_TTL,
+            "user": STATE["users"].public(u)}
+
+
+@app.post("/api/auth/logout")
+def logout(response: Response):
+    response.delete_cookie(COOKIE)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def me(user=Depends(current_user)):
+    return {"user": user, "roles": list(ROLES)}
+
+
+@app.post("/api/auth/password")
+def change_password(body: PasswordIn, user=Depends(current_user)):
+    try:
+        STATE["users"].upsert(user["userid"], body.password, user["role"], user["name"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.get("/api/auth/users")
+def list_users(user=Depends(require("admin"))):
+    return {"users": STATE["users"].list(), "roles": list(ROLES)}
+
+
+@app.post("/api/auth/users")
+def upsert_user(body: UserIn, user=Depends(require("admin"))):
+    if body.userid.strip().upper() == user["userid"] and body.role != "admin":
+        raise HTTPException(400, "You cannot remove your own admin role.")
+    try:
+        return {"user": STATE["users"].upsert(body.userid, body.password, body.role, body.name)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/auth/users/{userid}")
+def delete_user(userid: str, user=Depends(require("admin"))):
+    if userid.strip().upper() == user["userid"]:
+        raise HTTPException(400, "You cannot delete the account you are signed in with.")
+    try:
+        STATE["users"].delete(userid)
+    except KeyError:
+        raise HTTPException(404, "No such user.")
+    return {"ok": True}
 
 
 # --- static -----------------------------------------------------------------
