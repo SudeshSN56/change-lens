@@ -32,7 +32,7 @@ SECRET_FILE = DATA / ".jwt_secret"
 
 ROLES = ("viewer", "analyst", "admin")
 ROLE_RANK = {r: i for i, r in enumerate(ROLES)}
-TOKEN_TTL = int(os.environ.get("CHANGELENS_TOKEN_TTL", 8 * 3600))  # seconds
+TOKEN_TTL = int(os.environ.get("CHANGELENS_TOKEN_TTL", 24 * 3600))  # seconds
 
 # Default accounts, written only when users.json does not exist yet.
 DEFAULT_USERS = [

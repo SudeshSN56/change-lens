@@ -35,7 +35,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    window.scrollTo(0, 0);
+    window.scrollTo({ top: 0, behavior: "instant" }); // smooth scroll is for in-page jumps, not route changes
   }, [pathKey]);
 
   // "/" focuses the query box from anywhere.

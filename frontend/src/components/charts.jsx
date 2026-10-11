@@ -200,7 +200,7 @@ function CityPlot({ city, points, onOpen }) {
       tip.show(
         e,
         <>
-          <b className="mono">TILE {best.pair_id}</b>
+          <b>Tile <span className="mono">{best.pair_id}</span></b>
           <div>
             {fmtPct(best.pct)} changed · {levelOf(best.pct).label}
           </div>

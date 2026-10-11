@@ -32,7 +32,7 @@ export function Transition({ t }) {
 export function LevelBadge({ pct }) {
   const l = levelOf(pct);
   return (
-    <span className={`lvl lvl-${l.key}`} title={`Change level ${l.label}: ≥ ${l.min}% of frame changed`}>
+    <span className={`lvl lvl-${l.key}`} style={{ "--lc": l.color }} title={`Change level ${l.label}: ≥ ${l.min}% of frame changed`}>
       <i style={{ color: l.color }} aria-hidden="true">
         {l.icon}
       </i>
@@ -88,11 +88,10 @@ export function Stat({ label, value, sub, small = false }) {
   );
 }
 
-export function PageHead({ eyebrow, title, sub, actions }) {
+export function PageHead({ title, sub, actions }) {
   return (
     <div className="page-head">
       <div>
-        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
         <h1>{title}</h1>
         {sub && <p>{sub}</p>}
       </div>
@@ -163,7 +162,6 @@ export function PairCard({ rec, onOpen }) {
       tabIndex={0}
       onClick={open}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), open())}
-      style={{ "--lvl": l.color }}
       aria-label={`Tile ${rec.pair_id}, ${rec.changed_pct_of_frame}% changed, ${l.label} level`}
     >
       <div className="pcard-img">
@@ -176,7 +174,7 @@ export function PairCard({ rec, onOpen }) {
       </div>
       <div className="pcard-body">
         <div className="pcard-row">
-          <span className="mono strong">TILE {rec.pair_id}</span>
+          <span className="strong">Tile <span className="mono">{rec.pair_id}</span></span>
           <LevelBadge pct={rec.changed_pct_of_frame} />
         </div>
         <div className="pcard-meta">

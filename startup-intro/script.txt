@@ -1,0 +1,11 @@
+Introducing Change Lens.
+See exactly what changed on the ground, between two aerial images.
+The overview shows change across every sector, from low to severe.
+Ask a question in plain English, and get back the places that match.
+Or browse the whole index, filtered by city, change level, and activity.
+Open any tile to compare before and after, side by side.
+The model labels every changed pixel, so you see what turned into what.
+Find the most similar changes anywhere in the index.
+Upload your own image pairs, up to fifty at once, and print a brief for each.
+Everything is searchable in seconds.
+Change Lens. Know what changed.

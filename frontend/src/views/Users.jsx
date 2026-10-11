@@ -66,8 +66,8 @@ export default function Users() {
   };
 
   return (
-    <>
-      <PageHead eyebrow="Administration" title="User accounts" sub="Who can sign in to this console and what each account is allowed to do." />
+    <div className="page">
+      <PageHead title="User accounts" sub="Who can sign in to this console and what each account is allowed to do." />
       {error && <ErrorBox title="Could not load accounts" detail={error} hint="Only admin accounts can manage users." />}
       {!data && !error && <Loading label="Loading accounts" />}
       {data && (
@@ -165,6 +165,6 @@ export default function Users() {
           </Panel>
         </div>
       )}
-    </>
+    </div>
   );
 }

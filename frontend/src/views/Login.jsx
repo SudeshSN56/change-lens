@@ -35,77 +35,78 @@ export default function Login({ online, reason }) {
 
   return (
     <div className="login-page">
-      <form className="login-card panel" onSubmit={submit} noValidate>
-        <div className="login-brand">
-          <span className="brand-mark">
-            <Icon name="radar" size={22} />
-          </span>
-          <div>
-            <b>CHANGE LENS</b>
-            <small>Change intelligence console</small>
+      <div className="login-shell">
+        <section className="login-visual">
+          <div className="login-brand">
+            <img className="brand-mark" src="/favicon.svg" alt="" />
+            <div>
+              <b>Change Lens</b>
+              <small>Change intelligence console</small>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div className="login-head">
-          <div className="eyebrow">Restricted access</div>
-          <h1>Analyst sign-in</h1>
-          <p>Sign in with the user id and password issued to you. The session is tied to this tab and ends as soon as you leave it.</p>
-        </div>
-
-        {reason && !error && (
-          <div className="notice warn" role="status">
-            <Icon name="info" />
-            <div>{reason}. Please sign in again.</div>
+        <form className="login-card" onSubmit={submit} noValidate>
+          <div className="login-head">
+            <h1>Analyst sign-in</h1>
+            <p>Sign in with the user id and password issued to you. The session is tied to this tab and ends as soon as you leave it.</p>
           </div>
-        )}
-        {error && (
-          <div className="notice error" role="alert">
-            <Icon name="alert" />
-            <div>{error}</div>
-          </div>
-        )}
 
-        <label className="field login-field">
-          <span>User id</span>
-          <input
-            id="login-userid"
-            type="text"
-            autoComplete="username"
-            autoCapitalize="characters"
-            spellCheck={false}
-            value={userid}
-            onChange={(e) => setUserid(e.target.value.toUpperCase())}
-            placeholder="e.g. JOHNDOE"
-            disabled={busy}
-          />
-        </label>
-        <label className="field login-field">
-          <span>Password</span>
-          <div className="login-pass">
+          {reason && !error && (
+            <div className="notice warn" role="status">
+              <Icon name="info" />
+              <div>{reason}. Please sign in again.</div>
+            </div>
+          )}
+          {error && (
+            <div className="notice error" role="alert">
+              <Icon name="alert" />
+              <div>{error}</div>
+            </div>
+          )}
+
+          <label className="field login-field">
+            <span>User id</span>
             <input
-              id="login-password"
-              type={show ? "text" : "password"}
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="password"
+              id="login-userid"
+              type="text"
+              autoComplete="username"
+              autoCapitalize="characters"
+              spellCheck={false}
+              value={userid}
+              onChange={(e) => setUserid(e.target.value.toUpperCase())}
+              placeholder="e.g. JOHNDOE"
               disabled={busy}
             />
-            <button type="button" className="link-btn" onClick={() => setShow((s) => !s)} tabIndex={-1}>
-              {show ? "Hide" : "Show"}
-            </button>
+          </label>
+          <label className="field login-field">
+            <span>Password</span>
+            <div className="login-pass">
+              <input
+                id="login-password"
+                type={show ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="password"
+                disabled={busy}
+              />
+              <button type="button" className="link-btn" onClick={() => setShow((s) => !s)} tabIndex={-1}>
+                {show ? "Hide" : "Show"}
+              </button>
+            </div>
+          </label>
+
+          <button type="submit" className="btn primary login-submit" disabled={busy}>
+            {busy ? "Signing in..." : "Sign in"}
+          </button>
+
+          <div className={`login-link ${online ? "up" : online === false ? "down" : ""}`}>
+            <span className="link-dot" />
+            {online ? "API link up" : online === false ? "API link down: the sign-in service is unreachable" : "Connecting"}
           </div>
-        </label>
-
-        <button type="submit" className="btn primary login-submit" disabled={busy}>
-          {busy ? "Signing in..." : "Sign in"}
-        </button>
-
-        <div className={`login-link ${online ? "up" : online === false ? "down" : ""}`}>
-          <span className="link-dot" />
-          {online ? "API link up" : online === false ? "API link down: the sign-in service is unreachable" : "Connecting"}
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   );
 }

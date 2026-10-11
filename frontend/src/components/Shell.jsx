@@ -39,14 +39,15 @@ export function Shell({ page, health, online, user, children }) {
     health?.index_source === "model" ? "Model predictions" : health?.index_source === "ground_truth" ? "Ground truth" : "None";
   return (
     <div className="app">
+      <a className="skip-link" href="#main" onClick={(e) => { e.preventDefault(); document.getElementById("main")?.focus(); }}>
+        Skip to content
+      </a>
       <div className="shell">
         <aside className="sidebar">
           <a className="brand" href="#/">
-            <span className="brand-mark">
-              <Icon name="radar" size={20} />
-            </span>
+            <img className="brand-mark" src="/favicon.svg" alt="" />
             <span>
-              <b>CHANGE LENS</b>
+              <b>Change Lens</b>
               <small>Change intelligence console</small>
             </span>
           </a>
@@ -82,7 +83,7 @@ export function Shell({ page, health, online, user, children }) {
               {online ? "API link up" : online === false ? "API link down" : "Connecting"}
             </div>
             {health && (
-              <>
+              <div className="tb-stats">
                 <div className="tb-item">
                   <span>Index</span>
                   <b>{sourceLabel}</b>
@@ -99,7 +100,7 @@ export function Shell({ page, health, online, user, children }) {
                   <span>Checkpoint</span>
                   <b className={health.checkpoint_exists ? "" : "warn-text"}>{health.checkpoint_exists ? "Ready" : "Missing"}</b>
                 </div>
-              </>
+              </div>
             )}
             <div className="tb-spacer" />
             <div className="tb-clock">
@@ -129,7 +130,7 @@ export function Shell({ page, health, online, user, children }) {
               {theme === "light" ? "Dark" : "Light"}
             </button>
           </header>
-          <main className="content">{children}</main>
+          <main className="content" id="main" tabIndex={-1}>{children}</main>
         </div>
       </div>
     </div>

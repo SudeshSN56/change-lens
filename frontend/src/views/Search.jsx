@@ -86,121 +86,135 @@ export default function Search({ params }) {
   const open = (id) => go(`/pair/${id}`);
   const tokens = res ? tokensOf(res.parsed_filter) : [];
 
-  return (
-    <div className="page">
-      <PageHead
-        eyebrow="Natural-language query"
-        title="Ask the index a question"
-        sub="Queries are parsed by transparent rules, not a black box. The interpretation is shown with every answer, so every result can be explained."
-      />
-
-      <form
-        className="cmd"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <Icon name="search" size={18} />
-        <input
-          id="q"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="e.g. where did trees become buildings in Hangzhou"
-          autoComplete="off"
-          spellCheck={false}
-          aria-label="Query"
-        />
-        {text && (
-          <button type="button" className="icon-btn" onClick={() => setText("")} aria-label="Clear query">
-            <Icon name="x" />
-          </button>
-        )}
-        <kbd className="cmd-kbd" title="Press / anywhere to focus">
-          /
-        </kbd>
-        <button className="btn primary" disabled={busy || !text.trim()}>
-          {busy ? "Searching…" : "Run query"}
+  const examplesChips = (
+    <div className="chips">
+      <span className="chips-label">Examples</span>
+      {(examples.data?.examples ?? FALLBACK).map((c) => (
+        <button key={c} type="button" className="chip" onClick={() => submit(c)}>
+          {c}
         </button>
-      </form>
+      ))}
+    </div>
+  );
+  const recentChips = history.length > 0 && (
+    <div className="chips">
+      <span className="chips-label">Recent</span>
+      {history.map((c) => (
+        <button key={c} type="button" className="chip ghost" onClick={() => submit(c)}>
+          {c}
+        </button>
+      ))}
+      <button type="button" className="link-btn" onClick={() => setHistory([])}>
+        Clear
+      </button>
+    </div>
+  );
 
-      <div className="chips">
-        <span className="chips-label">Examples</span>
-        {(examples.data?.examples ?? FALLBACK).map((c) => (
-          <button key={c} type="button" className="chip" onClick={() => submit(c)}>
-            {c}
-          </button>
-        ))}
-      </div>
-      {history.length > 0 && (
-        <div className="chips">
-          <span className="chips-label">Recent</span>
-          {history.map((c) => (
-            <button key={c} type="button" className="chip ghost" onClick={() => submit(c)}>
-              {c}
+  // Two layouts: a centred hero before the first query, then a results view with the
+  // interpretation and suggestions in a side rail.
+  return (
+    <div className={`page search ${res ? "has-res" : "is-empty"}`}>
+      <section className="search-head">
+        <PageHead
+          title="Ask the index a question"
+          sub="Queries are parsed by transparent rules, not a black box. The interpretation is shown with every answer, so every result can be explained."
+        />
+
+        <form
+          className="cmd"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <Icon name="search" size={18} />
+          <input
+            id="q"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="e.g. where did trees become buildings in Hangzhou"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="Query"
+          />
+          {text && (
+            <button type="button" className="icon-btn" onClick={() => setText("")} aria-label="Clear query">
+              <Icon name="x" />
             </button>
-          ))}
-          <button type="button" className="link-btn" onClick={() => setHistory([])}>
-            Clear
+          )}
+          <kbd className="cmd-kbd" title="Press / anywhere to focus">
+            /
+          </kbd>
+          <button className="btn primary" disabled={busy || !text.trim()}>
+            {busy ? "Searching…" : "Run query"}
           </button>
-        </div>
-      )}
+        </form>
+
+        {!res && examplesChips}
+        {!res && recentChips}
+      </section>
 
       {err && <ErrorBox title="Query failed" detail={err} />}
 
       {res && (
-        <div className={busy ? "stale" : ""}>
-          <div className="interp">
-            <div className="interp-head">
-              <span className="eyebrow">Interpreted as</span>
-              <span className="mono small muted">
-                {res.count} result{res.count === 1 ? "" : "s"} · {Math.round(res.ms)} ms · precomputed index, no inference
-              </span>
-            </div>
-            <div className="tokens">
-              {tokens.length ? (
-                tokens.map(([k, v]) => (
-                  <span className="token" key={k}>
-                    <span>{k}</span>
-                    <b>{v}</b>
-                  </span>
-                ))
-              ) : (
-                <span className="token">
-                  <span>Constraints</span>
-                  <b>none — most changed tiles</b>
+        <div className={`search-layout${busy ? " stale" : ""}`}>
+          <aside className="search-rail">
+            <div className="interp">
+              <div className="interp-head">
+                <span className="eyebrow">Interpreted as</span>
+                <span className="mono small muted">
+                  {res.count} result{res.count === 1 ? "" : "s"} · {Math.round(res.ms)} ms · precomputed index, no inference
                 </span>
-              )}
+              </div>
+              <div className="tokens">
+                {tokens.length ? (
+                  tokens.map(([k, v]) => (
+                    <span className="token" key={k}>
+                      <span>{k}</span>
+                      <b>{v}</b>
+                    </span>
+                  ))
+                ) : (
+                  <span className="token">
+                    <span>Constraints</span>
+                    <b>none, most changed tiles first</b>
+                  </span>
+                )}
+              </div>
+              <code className="interp-raw">{res.parsed_summary}</code>
             </div>
-            <code className="interp-raw">{res.parsed_summary}</code>
-          </div>
 
-          {res.relaxed && <Notice kind="warn">{res.note}</Notice>}
+            {res.relaxed && <Notice kind="warn">{res.note}</Notice>}
+            <div className="rail-card">{examplesChips}</div>
+            {recentChips && <div className="rail-card">{recentChips}</div>}
+          </aside>
 
-          <div className="results-bar">
-            <h2 className="h2">Results</h2>
-            <Segmented
-              size="sm"
-              label="Result layout"
-              value={view}
-              onChange={setView}
-              options={[
-                { value: "grid", label: "Cards", icon: "grid" },
-                { value: "list", label: "Table", icon: "list" },
-              ]}
-            />
-          </div>
-          {view === "grid" ? (
-            <div className="grid">
-              {res.results.map((r) => (
-                <PairCard key={r.pair_id} rec={r} onOpen={open} />
-              ))}
+          <div className="search-results">
+            <div className="results-bar">
+              <h2 className="h2">Results</h2>
+              <Segmented
+                size="sm"
+                label="Result layout"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: "grid", label: "Cards", icon: "grid" },
+                  { value: "list", label: "Table", icon: "list" },
+                ]}
+              />
             </div>
-          ) : (
-            <Panel flush>
-              <PairTable rows={res.results} onOpen={open} ranked />
-            </Panel>
-          )}
+            {view === "grid" ? (
+              <div className="grid">
+                {res.results.map((r) => (
+                  <PairCard key={r.pair_id} rec={r} onOpen={open} />
+                ))}
+              </div>
+            ) : (
+              <Panel flush>
+                <PairTable rows={res.results} onOpen={open} ranked />
+              </Panel>
+            )}
+          </div>
         </div>
       )}
 

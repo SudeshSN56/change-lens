@@ -314,24 +314,25 @@ def similar_pairs(pair_id: str, k: int = 6, user=Depends(current_user)):
     return {"results": [card(r) for r in hits]}
 
 
-@app.post("/api/analyze")
-async def analyze_upload(before: UploadFile = File(...), after: UploadFile = File(...),
-                         user=Depends(require("analyst"))):
-    model = get_model()
+def analyze_pair(model, raw1: bytes, raw2: bytes, name1: str, name2: str):
+    """Run the model on one before/after pair (raw image bytes) and build its record.
+
+    Shared by the single and the batch upload routes. Everything for the pair
+    lands in uploads/{uid}/ so the UI can <img src> it like an indexed tile.
+    """
     uid = uuid.uuid4().hex[:12]
     out_dir = UPLOADS / uid
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    def read(f, data):
+    def read(data):
         img = Image.open(io.BytesIO(data)).convert("RGB")
         native = img.size
         if native != (512, 512):
             img = img.resize((512, 512), Image.BILINEAR)
         return np.array(img), native
 
-    raw1, raw2 = await before.read(), await after.read()
-    im1, size1 = read(before, raw1)
-    im2, size2 = read(after, raw2)
+    im1, size1 = read(raw1)
+    im2, size2 = read(raw2)
 
     # The model only ever saw 512x512 aerial tiles. Anything else is out of
     # distribution and the UI says so rather than quietly producing nonsense.
@@ -364,7 +365,7 @@ async def analyze_upload(before: UploadFile = File(...), after: UploadFile = Fil
     # the image content, not the upload id, so re-uploading the same pair always
     # resolves to the same sector, coordinates and dates instead of drifting on
     # every submission.
-    matched = resolve_pair_id(before.filename, after.filename)
+    matched = resolve_pair_id(name1, name2)
     if matched:
         md = dict(STATE["pair_meta"].get(matched)
                   or STATE["by_id"].get(matched, {}).get("metadata", {}))
@@ -376,9 +377,9 @@ async def analyze_upload(before: UploadFile = File(...), after: UploadFile = Fil
     md.pop("synthetic", None)
     rec["metadata"] = {**md, "uploaded": True,
                        "native_size_before": list(size1),
-                       "native_size_after": list(size2)}
-    rec["description"] = rec["description"].split(". ", 1)[-1] if rec["changed_px"] else \
-        "No change was detected between the two uploaded images."
+                       "native_size_after": list(size2),
+                       "file_before": name1 or "", "file_after": name2 or ""}
+    rec["description"] = rec["description"].split(". ", 1)[-1] if rec["changed_px"] else         "No change was detected between the two uploaded images."
 
     similar = []
     if STATE["sim"] is not None:
@@ -392,6 +393,53 @@ async def analyze_upload(before: UploadFile = File(...), after: UploadFile = Fil
                      "trained on 512x512 aerial tiles, so results outside that "
                      "domain are indicative only.") if ood else None,
     }
+
+
+@app.post("/api/analyze")
+async def analyze_upload(before: UploadFile = File(...), after: UploadFile = File(...),
+                         user=Depends(require("analyst"))):
+    model = get_model()
+    raw1, raw2 = await before.read(), await after.read()
+    try:
+        return analyze_pair(model, raw1, raw2, before.filename, after.filename)
+    except Image.UnidentifiedImageError:
+        raise HTTPException(400, "One of the files is not a readable image.")
+
+
+MAX_BATCH = 50
+
+
+@app.post("/api/analyze/batch")
+async def analyze_batch(before: list[UploadFile] = File(...), after: list[UploadFile] = File(...),
+                        user=Depends(require("analyst"))):
+    """Analyze several before/after pairs in one request.
+
+    `before[i]` is paired with `after[i]`; the two lists must be the same length.
+    Pairs are processed in order and one bad pair does not fail the batch: its
+    item carries `ok: false` and an `error` instead of a result.
+    """
+    if len(before) != len(after):
+        raise HTTPException(400, f"Got {len(before)} before and {len(after)} after images; "
+                                 "they must be paired one to one.")
+    if not before:
+        raise HTTPException(400, "No image pairs were uploaded.")
+    if len(before) > MAX_BATCH:
+        raise HTTPException(400, f"At most {MAX_BATCH} pairs per batch.")
+    model = get_model()
+    batch_id = uuid.uuid4().hex[:8]
+    items = []
+    for i, (b, a) in enumerate(zip(before, after)):
+        item = {"index": i, "before_name": b.filename, "after_name": a.filename}
+        try:
+            raw1, raw2 = await b.read(), await a.read()
+            item.update(ok=True, result=analyze_pair(model, raw1, raw2, b.filename, a.filename))
+        except Image.UnidentifiedImageError:
+            item.update(ok=False, error="Not a readable image.")
+        except Exception as e:  # noqa: BLE001 - one bad pair must not sink the batch
+            item.update(ok=False, error=str(e) or type(e).__name__)
+        items.append(item)
+    return {"batch_id": batch_id, "n": len(items),
+            "n_ok": sum(1 for it in items if it["ok"]), "items": items}
 
 
 # --- auth routes --------------------------------------------------------------
@@ -419,9 +467,9 @@ def login(body: Login, response: Response):
     token = encode_jwt({"sub": u["userid"], "role": u["role"], "name": u.get("name", "")},
                        STATE["secret"])
     # Cookie is what lets plain <img src="/media/..."> load; the SPA also sends
-    # the token as a Bearer header for every fetch. No max_age: a session cookie
-    # that the browser drops when it closes (the SPA clears it on sign-out anyway).
-    response.set_cookie(COOKIE, token, httponly=True, samesite="lax")
+    # the token as a Bearer header for every fetch. max_age matches the JWT so the
+    # cookie outlives a browser restart for the same 24 h as the token.
+    response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=TOKEN_TTL)
     return {"token": token, "token_type": "bearer", "expires_in": TOKEN_TTL,
             "user": STATE["users"].public(u)}
 

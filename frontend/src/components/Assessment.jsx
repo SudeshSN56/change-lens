@@ -1,6 +1,7 @@
 import { CLASS_BY_IDX, FRAME_PX, activityTotals, fmtInt, fmtPct, levelOf, matrixOf, signed } from "../lib/constants";
+import { useStoredState } from "../lib/hooks";
 import { BarList, DeltaBars, TransitionMatrix } from "./charts";
-import { Panel, Stat, Swatch, Transition } from "./ui";
+import { Panel, Segmented, Stat, Swatch, Transition } from "./ui";
 
 /** Description + headline figures. Shared by the tile assessment and the upload result. */
 export function AssessmentSummary({ rec }) {
@@ -35,8 +36,17 @@ export function AssessmentSummary({ rec }) {
   );
 }
 
-/** Charts, tables and metadata below the imagery. */
+const TABS = [
+  { value: "activity", label: "Activity" },
+  { value: "shift", label: "Land-cover shift" },
+  { value: "matrix", label: "Transitions" },
+  { value: "area", label: "Changed area" },
+];
+
+/** Charts, tables and metadata beside the imagery. */
 export function AssessmentBody({ rec }) {
+  const [stored, setTab] = useStoredState("cl.assess.tab", "activity");
+  const tab = TABS.some((t) => t.value === stored) ? stored : "activity";
   const matrix = matrixOf(rec);
   const acts = activityTotals(matrix).filter((a) => a.px > 0);
   const actPx = acts.reduce((s, a) => s + a.px, 0);
@@ -57,38 +67,62 @@ export function AssessmentBody({ rec }) {
       ),
     }));
 
+  // One panel, one view at a time; print shows every pane (see .pane[hidden] in theme.css).
+  const pane = (key, title, sub, body) => (
+    <section className="pane" hidden={tab !== key} aria-label={title}>
+      <h3 className="pane-title">{title}</h3>
+      {sub && <p className="pane-sub">{sub}</p>}
+      {body}
+    </section>
+  );
+
   return (
     <>
-      <div className="cols cols-2">
-        <Panel title="Activity in this tile" sub="Changed pixels grouped by type of transition">
-          {rows.length ? <BarList rows={rows} /> : <p className="muted">No change detected in this tile.</p>}
-        </Panel>
-        <Panel title="Land-cover shift" sub="Change in each class's share of the changed area, in percentage points">
-          <DeltaBars rows={rec.per_category} />
-        </Panel>
-      </div>
-
-      <div className="cols cols-2">
-        <Panel title="Transition matrix" sub="Rows are land cover before, columns after. Cells are shares of all changed pixels.">
-          <TransitionMatrix matrix={matrix} />
-        </Panel>
-        <Panel title="Land cover within the changed area">
-          {/* The denominator line is mandatory: these are shares of the changed region,
-              not of the frame, and the table is misleading without it. */}
-          <div className="denominator">
-            Percentages are shares of the <b>changed area only</b> — <b>{fmtInt(rec.changed_px)} px</b>, which is{" "}
-            <b>{fmtPct(rec.changed_pct_of_frame, 2)}</b> of the 512×512 frame. SECOND labels land cover only inside
-            changed regions.
-            {rec.same_category_px > 0 && (
-              <>
-                {" "}
-                <b>{fmtInt(rec.same_category_px)} px</b> changed in appearance but stayed in the same category.
-              </>
-            )}
-          </div>
-          <CategoryTable rows={rec.per_category} />
-        </Panel>
-      </div>
+      <Panel
+        title="Change analysis"
+        className="analysis"
+        actions={<Segmented size="sm" label="Analysis view" value={tab} onChange={setTab} options={TABS} />}
+      >
+        {pane(
+          "activity",
+          "Activity in this tile",
+          "Changed pixels grouped by type of transition",
+          rows.length ? <BarList rows={rows} /> : <p className="muted">No change detected in this tile.</p>,
+        )}
+        {pane(
+          "shift",
+          "Land-cover shift",
+          "Change in each class's share of the changed area, in percentage points",
+          <DeltaBars rows={rec.per_category} />,
+        )}
+        {pane(
+          "matrix",
+          "Transition matrix",
+          "Rows are land cover before, columns after. Cells are shares of all changed pixels.",
+          <TransitionMatrix matrix={matrix} />,
+        )}
+        {pane(
+          "area",
+          "Land cover within the changed area",
+          null,
+          <>
+            {/* The denominator line is mandatory: these are shares of the changed region,
+                not of the frame, and the table is misleading without it. */}
+            <div className="denominator">
+              Percentages are shares of the <b>changed area only</b>: <b>{fmtInt(rec.changed_px)} px</b>, which is{" "}
+              <b>{fmtPct(rec.changed_pct_of_frame, 2)}</b> of the 512×512 frame. SECOND labels land cover only inside
+              changed regions.
+              {rec.same_category_px > 0 && (
+                <>
+                  {" "}
+                  <b>{fmtInt(rec.same_category_px)} px</b> changed in appearance but stayed in the same category.
+                </>
+              )}
+            </div>
+            <CategoryTable rows={rec.per_category} />
+          </>,
+        )}
+      </Panel>
 
       <MetadataPanel rec={rec} />
     </>
@@ -149,8 +183,9 @@ function MetadataPanel({ rec }) {
     ["Record source", rec.source === "ground_truth" ? "Ground-truth labels" : "Model prediction"],
     ...(m.uploaded
       ? [
-          ["Matched tile", m.matched_pair_id ?? "None — unseen imagery"],
+          ["Matched tile", m.matched_pair_id ?? "None (unseen imagery)"],
           ["Analysis id", rec.pair_id],
+          ["Uploaded files", m.file_before ? `${m.file_before} → ${m.file_after}` : null],
           ["Native size · before", m.native_size_before?.join(" × ")],
           ["Native size · after", m.native_size_after?.join(" × ")],
         ]
@@ -162,7 +197,7 @@ function MetadataPanel({ rec }) {
         {fields.map(([k, v]) => (
           <div key={k}>
             <dt>{k}</dt>
-            <dd className="mono">{v ?? "—"}</dd>
+            <dd>{v ?? "—"}</dd>
           </div>
         ))}
       </dl>

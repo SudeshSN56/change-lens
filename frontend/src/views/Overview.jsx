@@ -86,11 +86,34 @@ export default function Overview() {
 
   return (
     <div className="page">
-      <PageHead
-        eyebrow="Situation overview"
-        title="Change activity across monitored sectors"
-        sub={`${fmtInt(d.n)} held-out aerial tile pairs from three sectors. None of these tiles were used to train the model.`}
-      />
+      <section className="hero">
+        <PageHead
+          title="Change activity across monitored sectors"
+          sub={`${fmtInt(d.n)} held-out aerial tile pairs from three sectors. None of these tiles were used to train the model.`}
+        />
+
+        <div className="kpis kpis-4">
+          <Stat label="Tiles under watch" value={fmtInt(d.n)} sub="Hangzhou · Chengdu · Shanghai" />
+          <Stat
+            label="Priority tiles"
+            value={fmtInt(priority)}
+            sub={
+              <>
+                <span className="lvl-dot" style={{ background: LEVELS[0].color }} />
+                {d.levels.severe} severe · <span className="lvl-dot" style={{ background: LEVELS[1].color }} />
+                {d.levels.high} high
+              </>
+            }
+          />
+          <Stat label="Mean change per tile" value={fmtPct(d.mean)} sub={`Median ${fmtPct(d.median)} of frame`} />
+          <Stat
+            label="Dominant activity"
+            value={d.dominant?.label ?? "—"}
+            sub={d.dominant ? `${fmtPct((100 * d.dominant.px) / d.totalPx)} of all changed pixels` : ""}
+            small
+          />
+        </div>
+      </section>
 
       {d.source === "ground_truth" && (
         <Notice kind="info">
@@ -98,27 +121,13 @@ export default function Overview() {
         </Notice>
       )}
 
-      <div className="kpis kpis-4">
-        <Stat label="Tiles under watch" value={fmtInt(d.n)} sub="Hangzhou · Chengdu · Shanghai" />
-        <Stat
-          label="Priority tiles"
-          value={fmtInt(priority)}
-          sub={
-            <>
-              <span className="lvl-dot" style={{ background: LEVELS[0].color }} />
-              {d.levels.severe} severe · <span className="lvl-dot" style={{ background: LEVELS[1].color }} />
-              {d.levels.high} high
-            </>
-          }
-        />
-        <Stat label="Mean change per tile" value={fmtPct(d.mean)} sub={`Median ${fmtPct(d.median)} of frame`} />
-        <Stat
-          label="Dominant activity"
-          value={d.dominant?.label ?? "—"}
-          sub={d.dominant ? `${fmtPct((100 * d.dominant.px) / d.totalPx)} of all changed pixels` : ""}
-          small
-        />
-      </div>
+      <Panel
+        title="Sector plot"
+        sub="Each dot is one tile, coloured by change level. Hover to inspect, click to open."
+        actions={<LevelLegend counts={d.levels} />}
+      >
+        <SectorMap points={d.points} onOpen={openPoint} />
+      </Panel>
 
       <div className="cols cols-2-1">
         <Panel
@@ -137,14 +146,6 @@ export default function Overview() {
           <BarList rows={actRows} onSelect={(r) => go(`/search?q=${encodeURIComponent(r.query)}`)} />
         </Panel>
       </div>
-
-      <Panel
-        title="Sector plot"
-        sub="Each dot is one tile, coloured by change level. Hover to inspect, click to open."
-        actions={<LevelLegend counts={d.levels} />}
-      >
-        <SectorMap points={d.points} onOpen={openPoint} />
-      </Panel>
 
       <div className="cols cols-2">
         <Panel title="Change level distribution" sub="Tiles by share of frame changed, in 5% bins">

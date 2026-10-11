@@ -152,8 +152,7 @@ export default function Dossier({ id, params }) {
 
       <div className="dossier-title">
         <div>
-          <div className="eyebrow">Tile assessment</div>
-          <h1 className="mono">TILE {id}</h1>
+          <h1>Tile {id}</h1>
           <div className="dossier-tags">
             <LevelBadge pct={rec.changed_pct_of_frame} />
             <SourceBadge rec={rec} />
@@ -197,18 +196,19 @@ export default function Dossier({ id, params }) {
       </div>
 
       <div className="dossier-grid">
-        <Panel title="Imagery" className="no-print">
-          <Compare rec={rec} />
-        </Panel>
+        <div className="dossier-media no-print">
+          <Panel title="Imagery">
+            <Compare rec={rec} />
+          </Panel>
+        </div>
         <div className="stack-col">
           <Panel title="Assessment">
             <AssessmentSummary rec={rec} />
           </Panel>
           {hasGt && <ModelVsTruth model={primary} gt={gt.data} />}
+          <AssessmentBody rec={rec} />
         </div>
       </div>
-
-      <AssessmentBody rec={rec} />
 
       {similar.data?.results?.length > 0 && (
         <Panel

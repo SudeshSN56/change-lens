@@ -75,113 +75,117 @@ export default function Explorer() {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Tile explorer"
         title="Browse every monitored tile"
         sub={`${fmtInt(all.data.total)} held-out tile pairs. Filter by sector, change level and primary activity.`}
       />
 
-      <div className="filters">
-        <label className="field">
-          <span>Tile id</span>
-          <input value={idq} onChange={(e) => setIdq(e.target.value)} placeholder="e.g. 00421" inputMode="numeric" />
-        </label>
-        <div className="field">
-          <span>Sector</span>
-          <Segmented
-            label="Sector"
-            value={region}
-            onChange={setRegion}
-            options={[{ value: "all", label: "All" }, ...CITIES.map((c) => ({ value: c.name, label: c.name }))]}
-          />
-        </div>
-        <div className="field">
-          <span>Change level</span>
-          <div className="lvl-toggles" role="group" aria-label="Change level">
-            {LEVELS.map((l) => (
-              <button
-                key={l.key}
-                type="button"
-                className={levels.includes(l.key) ? "on" : ""}
-                aria-pressed={levels.includes(l.key)}
-                onClick={() => toggleLevel(l.key)}
-                title={`≥ ${l.min}% of frame changed`}
-              >
-                <i style={{ background: l.color }} />
-                {l.label}
-                <b className="mono">{levelCounts[l.key]}</b>
+      <div className="explorer">
+        <aside className="filters" aria-label="Filters">
+          <div className="filters-head">
+            <span className="eyebrow">Filters</span>
+            {filtered && (
+              <button type="button" className="link-btn" onClick={reset}>
+                Reset
               </button>
-            ))}
+            )}
           </div>
-        </div>
-        <label className="field">
-          <span>Primary activity</span>
-          <select value={activity} onChange={(e) => setActivity(e.target.value)}>
-            <option value="all">All activity</option>
-            {ACTIVITIES.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.label}
-              </option>
-            ))}
-            <option value="none">No change detected</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Sort</span>
-          <select value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="change_desc">Most changed first</option>
-            <option value="change_asc">Least changed first</option>
-            <option value="recent">Latest after-image first</option>
-            <option value="id">Tile id</option>
-          </select>
-        </label>
-        <div className="field">
-          <span>View</span>
-          <Segmented
-            label="Layout"
-            value={view}
-            onChange={setView}
-            options={[
-              { value: "grid", label: "Cards", icon: "grid" },
-              { value: "list", label: "Table", icon: "list" },
-            ]}
-          />
+          <label className="field">
+            <span>Tile id</span>
+            <input value={idq} onChange={(e) => setIdq(e.target.value)} placeholder="e.g. 00421" inputMode="numeric" />
+          </label>
+          <div className="field">
+            <span>Sector</span>
+            <Segmented
+              label="Sector"
+              value={region}
+              onChange={setRegion}
+              options={[{ value: "all", label: "All" }, ...CITIES.map((c) => ({ value: c.name, label: c.name }))]}
+            />
+          </div>
+          <div className="field">
+            <span>Change level</span>
+            <div className="lvl-toggles" role="group" aria-label="Change level">
+              {LEVELS.map((l) => (
+                <button
+                  key={l.key}
+                  type="button"
+                  className={levels.includes(l.key) ? "on" : ""}
+                  aria-pressed={levels.includes(l.key)}
+                  onClick={() => toggleLevel(l.key)}
+                  title={`≥ ${l.min}% of frame changed`}
+                >
+                  <i style={{ background: l.color }} />
+                  {l.label}
+                  <b className="mono">{levelCounts[l.key]}</b>
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="field">
+            <span>Primary activity</span>
+            <select value={activity} onChange={(e) => setActivity(e.target.value)}>
+              <option value="all">All activity</option>
+              {ACTIVITIES.map((a) => (
+                <option key={a.key} value={a.key}>
+                  {a.label}
+                </option>
+              ))}
+              <option value="none">No change detected</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Sort</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="change_desc">Most changed first</option>
+              <option value="change_asc">Least changed first</option>
+              <option value="recent">Latest after-image first</option>
+              <option value="id">Tile id</option>
+            </select>
+          </label>
+        </aside>
+
+        <div className="explorer-main">
+          <div className="results-bar">
+            <span className="muted">
+              Showing <b className="mono">{page.length}</b> of <b className="mono">{rows.length}</b> matching tiles
+            </span>
+            <Segmented
+              size="sm"
+              label="Layout"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "grid", label: "Cards", icon: "grid" },
+                { value: "list", label: "Table", icon: "list" },
+              ]}
+            />
+          </div>
+
+          {rows.length === 0 ? (
+            <Panel>
+              <p className="muted">No tiles match these filters.</p>
+            </Panel>
+          ) : view === "grid" ? (
+            <div className="grid">
+              {page.map((r) => (
+                <PairCard key={r.pair_id} rec={r} onOpen={open} />
+              ))}
+            </div>
+          ) : (
+            <Panel flush>
+              <PairTable rows={page} onOpen={open} />
+            </Panel>
+          )}
+
+          {shown < rows.length && (
+            <div className="more">
+              <button type="button" className="btn" onClick={() => setShown((s) => s + PAGE)}>
+                Load {Math.min(PAGE, rows.length - shown)} more
+              </button>
+            </div>
+          )}
         </div>
       </div>
-
-      <div className="results-bar">
-        <span className="muted">
-          Showing <b className="mono">{page.length}</b> of <b className="mono">{rows.length}</b> matching tiles
-        </span>
-        {filtered && (
-          <button type="button" className="link-btn" onClick={reset}>
-            Reset filters
-          </button>
-        )}
-      </div>
-
-      {rows.length === 0 ? (
-        <Panel>
-          <p className="muted">No tiles match these filters.</p>
-        </Panel>
-      ) : view === "grid" ? (
-        <div className="grid">
-          {page.map((r) => (
-            <PairCard key={r.pair_id} rec={r} onOpen={open} />
-          ))}
-        </div>
-      ) : (
-        <Panel flush>
-          <PairTable rows={page} onOpen={open} />
-        </Panel>
-      )}
-
-      {shown < rows.length && (
-        <div className="more">
-          <button type="button" className="btn" onClick={() => setShown((s) => s + PAGE)}>
-            Load {Math.min(PAGE, rows.length - shown)} more
-          </button>
-        </div>
-      )}
     </div>
   );
 }

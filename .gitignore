@@ -26,3 +26,9 @@ weights/run1_baseline/
 weights/run4/
 data/users.json
 data/.jwt_secret
+
+# deployment helper binary (53 MB, downloaded not built)
+tools/cloudflared.exe
+tunnel.log
+api_deploy.log
+.tunnel_url

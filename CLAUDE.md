@@ -231,11 +231,54 @@ Result: test SeK 0.144 → **0.192** (tuned), change IoU 0.467 → 0.544, recall
   analyst, User accounts needs admin); `#/users` is the admin page. Verified with curl on all
   role combinations and headless-Edge screenshots (login, overview, users). API restarted on
   8000 (log `api.log`) with the new code.
-  **Sessions are per-tab and end on leaving the tab (user request, 2026-09-18):** the token is
-  kept in `sessionStorage` (not localStorage), `useAuth` signs out on `visibilitychange` →
-  hidden (calling `/api/auth/logout` with `keepalive` to drop the cookie), and the cookie is a
-  session cookie (no `max_age`). So switching tabs, opening a new tab, or closing the browser
-  all lead back to the login page. The 8 h JWT expiry is just the hard ceiling.
+  **Sessions last 24 h (user request, 2026-09-18, replacing the earlier per-tab design):** the
+  token lives in `localStorage` (shared across tabs, survives closing the browser; a `storage`
+  listener in `useAuth` keeps tabs in sync), there is no sign-out on tab switch, `TOKEN_TTL`
+  defaults to 24 h (`CHANGELENS_TOKEN_TTL` env overrides) and the `cl_token` cookie carries
+  `max_age=TOKEN_TTL`. A session ends only on explicit Sign out or JWT expiry.
+
+- **Batch uploads (2026-09-18).** `POST /api/analyze/batch` takes parallel `before[]` /
+  `after[]` file lists (paired by index, max 50, analyst role) and returns
+  `{batch_id, n, n_ok, items[{index, before_name, after_name, ok, result | error}]}`; one bad
+  pair does not fail the batch. The per-pair logic is `analyze_pair()` in `api.py`, shared with
+  the single `/api/analyze` route, and the record metadata now also carries `file_before` /
+  `file_after`. `views/Analyze.jsx` has two multi-file drop zones; files are paired by the
+  longest digit run in their names (`00003_before` ↔ `00003_after`, `im1_00003` ↔ `im2_00003`),
+  leftovers in name order, with a pairing preview and unpaired-file warning before running. The
+  batch is sent in chunks of 4 so the results table (status, level, changed %, primary
+  transition, matched tile) fills in progressively; clicking a row opens its full assessment
+  below, with summary KPIs above. A single pair still shows the assessment directly. The brief
+  for one pair is the `Brief` component (title, print-only before/after/change-map strip,
+  summary, body); **Print all briefs** on the batch panel mounts a `print-only .print-all`
+  block with one `Brief` per finished pair (`break-after: page` between them), waits for the
+  images, calls `window.print()`, and unmounts on `afterprint`. The per-pair "Print brief"
+  button still prints only the selected pair.
+
+- **"Quiet graphite" restyle (2026-10-10), replacing the same-day ui-ux-pro-max look** (navy, blue
+  to cyan gradients, glows, radar, uppercase eyebrows), which the user said looked AI-generated.
+  Rules, all in `theme.css` tokens: the interface is greyscale (`--bg #111214`, `--panel #17181b`,
+  hairline `--line`), and **colour is reserved for data**: level colours, SECOND class colours,
+  imagery, the transition ramp, `--inc`/`--dec`. Primary button = ink (`--accent`, near-white in
+  dark, near-black in light). Fonts **IBM Plex Sans + IBM Plex Mono** (mono only for numbers, ids,
+  dates). No gradients (except the transition-matrix hatch and the login scrim), no glows,
+  `backdrop-filter`, grain, grid background, entrance animations or `text-transform: uppercase`.
+  Labels are sentence case. Panels are flat (radius 8, 1px border); KPI strips (`.kpis`) are one
+  ruled grid (1px gaps over `--line`), not separate cards. Light theme = token swap plus 4 overrides.
+  Markup: no eyebrows above headings (`PageHead` has no `eyebrow` prop; in-panel `.eyebrow` spans
+  are plain 13px labels), `Stat` has no `icon`/`tone`, titles read "Tile 02353" / "Analysis …".
+  Brand mark = `public/favicon.svg` (two offset frames; it replaced the default Vite bolt), used as
+  `<img>` in the sidebar and on login. Login left half = real test tile 02353 split before/after
+  (`public/login-before.jpg`, `login-after.jpg`, from `video/public/`; public because login is
+  pre-auth and `/media` needs a token). Sidebar 240px. Pre-restyle copy of `frontend/src`,
+  `index.html` and `public/` was kept only in the session scratchpad (no commit, by user choice).
+  Still valid from the earlier pass: watchlist thumbnail `max-width:none` fix; Tile assessment and
+  upload result (`Dossier`, `Analyze` `Brief`) pin `.dossier-media` imagery left (sticky, off below
+  1200 px); `AssessmentBody` is one "Change analysis" panel with tabs (stored in
+  `localStorage["cl.assess.tab"]`, every `.pane` shows in print); Search = query box first, then a
+  300 px sticky rail beside results; Explorer = sticky filter aside + gallery. Checked with headless
+  Edge over CDP in both themes and at 390 px. **Screenshot gotcha:** `auth.js` signs out on
+  `visibilitychange: hidden`, which a page reload fires while unloading, so after signing in,
+  navigate with `location.hash` only.
 
 - **API dev server** serves the built UI from `frontend/dist` at http://localhost:8000, so no Vite
   dev server is needed for a demo — just `npm run build` after frontend changes. It dies with its
@@ -269,3 +312,134 @@ Result: test SeK 0.144 → **0.192** (tuned), change IoU 0.467 → 0.544, recall
   --screenshot=<out.png> "http://localhost:8000/#/"`
 - `train.log` and `analyze_gt.log` are full of `\r` progress bars — pipe through
   `tr '\r' '\n' | grep -v '%|'` before reading.
+
+## 8. Deployment — public tunnel (2026-09-20)
+
+The site is deployed by running the API locally and putting a Cloudflare **quick tunnel** in
+front of it. Nothing is uploaded to a host: the ~900 MB of overlays + test imagery and the
+282 MB checkpoint stay on this machine, and upload analysis keeps running on the local GPU
+(~2.4 s warm per pair, ~6 s on the first call while the model loads).
+
+```bash
+# 1. build the UI (only needed after frontend changes)
+cd frontend && npm run build
+
+# 2. API on localhost only -- the tunnel is the access path
+.venv/Scripts/python.exe -m uvicorn api:app --app-dir src --host 127.0.0.1 --port 8000 > api_deploy.log 2>&1 &
+
+# 3. public HTTPS URL (prints it into tunnel.log)
+tools/cloudflared.exe tunnel --url http://127.0.0.1:8000 --no-autoupdate > tunnel.log 2>&1 &
+grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" tunnel.log | head -1
+```
+
+`tools/cloudflared.exe` is the standalone binary (v2026.9.1), gitignored — re-download from
+`github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe`.
+
+**Properties of a quick tunnel.** The hostname is random and ephemeral: it changes every time
+cloudflared restarts, and the link dies with the process. There is no Cloudflare account or
+domain involved. For a stable hostname you need a named tunnel, which needs an account + a
+domain on Cloudflare.
+
+**Both processes die with the session that started them**, same as the dev API — a demo needs
+them (re)started first, and the URL re-read from `tunnel.log`.
+
+**Credentials on the public URL.** By explicit user decision (2026-09-20) the deployed instance
+keeps the demo defaults **JOHNDOE / john@123** and **ADMIN / admin@123**. Anyone with the link
+can sign in, so the link is treated as the secret: keep it private, stop the tunnel after a demo.
+`data/.jwt_secret` and `data/users.json` persist on disk, so sessions survive an API restart.
+
+Verified end-to-end over the public URL on 2026-09-20: SPA + assets, `/api/health`, 401 on
+unauthenticated `/api/pairs`, login, `/api/query` ("where did trees become buildings" → 5 hits,
+parsed `tree → buildings`, not relaxed), `/api/stats`, `/api/examples`, pair detail, `?source=gt`,
+`/similar`, `/media/analyzed/overlays/*.png`, `/media/second/im1|im2/*.png`, and `/api/analyze`
+(pair 00003 → 44.0% changed, `metadata.matched_pair_id` = `00003`).
+
+Known UI nit found during the check, not fixed: `views/Login.jsx` still reads "The session is
+tied to this tab and ends as soon as you leave it", which describes the pre-2026-09-18 design.
+Sessions are now 24 h in `localStorage` and shared across tabs.
+
+## 9. Intro video (2026-10-10)
+
+45 s, 1920×1080, 30 fps, **silent** MP4 introducing the project, styled after the Paper Mono
+launch film (whatships.com/videos/paper-mono): off-white paper `#F2F1EC`, ink `#1E1E1E`, blue
+`#78A8E8`, design-tool windows with an offset blue shadow, a moving cursor, blue pixel-block
+wipes on cuts, and a faint blue ASCII "lens" generated from tile 02353 (`video/make_ascii.py` ->
+`video/src/ascii.js`). Built with **Remotion 4.0.525** in its own folder `video/` (own
+`package.json`; renderer ships ffmpeg, which is not installed system-wide).
+
+```bash
+cd video && npm install          # once; npm blocks esbuild's postinstall, harmless (binary is in @esbuild/win32-x64)
+npm run studio                   # live preview / tweak in the browser
+npm run render                   # -> video/out/change-lens-intro.mp4 (~1.5 min, ~6 MB)
+```
+
+Scenes (`video/src/Intro.jsx` holds order + lengths): open (icon on ASCII lens) · "introducing"
+in 6 weights · title + question · tile 02353 swipe 2017-02-14 -> 2019-02-06 · change map + units ·
+query "where did trees become buildings" with the 6 live results · dark beat with test scores
+from `weights/final_metrics.json` (tuned) · two light-theme UI screenshots · end card that erases
+back to the icon. Every number/image is real project data; result tiles and stats were read from
+the live API on 2026-10-10. `video/out/` and `node_modules/` are gitignored.
+
+## 10. Startup intro with voiceover (2026-10-11)
+
+A separate website intro in `startup-intro/` (the `video/` film above is untouched). It runs 40.8 s at
+1920×1080 and 60 fps, with a continuous voiceover, music and SFX. The style is a minimalist SaaS ad:
+white scenes, one #080808 product block, Inter, and accent `#3B6FD8` on key words and on the logo's
+filled square. It was built from the user's brief, with the user choosing the accent and the end-card
+URL `github.com/SudeshSN56/change-lens`. The X reference video could not be fetched.
+
+The first cut (2026-10-11 morning) was 30 s and showed only search. The user asked for **every
+feature**, a **voice with no breaks**, and up to 45 s, which produced the current version.
+
+```bash
+cd startup-intro && npm install
+../.venv/Scripts/python.exe gen_audio.py              # music (60 s) + SFX (numpy synthesis, seeded)
+.venv-voice/Scripts/python.exe gen_voice.py           # voice -> public/audio/line01..11.mp3 + timings.json
+npm run studio                                        # preview
+npm run render                                        # -> out/startup-intro.mp4 (~3 min)
+../.venv/Scripts/python.exe qa.py                     # contact sheet, audio envelope, voice placement
+```
+
+- **Script:** `script.txt` holds 11 narration lines. Scenes, in `SCENES` in `src/Intro.jsx`:
+  1. Opening
+  2. Headline
+  3. Overview (KPIs, level histogram, activity breakdown)
+  4. Ask (query, parsed `Transition` token, results)
+  5. Explorer (Sector, Severe and New construction filters narrow the grid: 742, 249, 23, 17 tiles)
+  6. Tile, one dark window across 2 lines: swipe compare, then the model change map
+  7. Similar tiles
+  8. Upload (batch table, `Print all briefs`)
+  9. Scale ("Everything is searchable in seconds.")
+  10. End
+
+  On-screen text is a short headline per scene, not the full spoken line.
+- **Timing:** the narration is continuous. `gen_voice.py` sets `LEAD` 0.5 s of music before the first
+  word, `PAUSE` 0.2 s between lines (about 0.45 s of real silence), and `END_HOLD` 1.5 s after the
+  last word. `Intro.jsx` builds each scene's length and per-line `cues`/`vos` from `timings.json`.
+  Mid-line sync (e.g. the second half of a line) uses fractions of the line's duration, measured
+  from the clips' internal pauses.
+- **Voice is Kokoro-82M** (Apache-2.0, local, voice `af_heart`), not Fish Audio.
+  - Fish returned `402 Insufficient API credit` for every model, including `s2.1-pro-free`. API credit
+    is billed separately from the fish.audio app subscription.
+  - `gen_voice.py --engine fish --voice <reference_id>` still works once the account has credit.
+  - The Fish key is in `startup-intro/.env` (gitignored). It was pasted in chat, so it should be rotated.
+- **Kokoro has its own venv, `startup-intro/.venv-voice`** (gitignored, `--system-site-packages`
+  for the CUDA torch). It must stay separate: in the project `.venv`, kokoro's deps could shadow the
+  CUDA torch the API needs. It also needs `transformers==4.51.3`, because 5.x calls
+  `torch.accelerator`, which torch 2.5.1 does not have.
+  - The clips are trimmed to the speech and normalised to -16 dBFS RMS.
+- **Typing sync:** `CPS` in `src/theme.js` is shared by `<Typed>` and `type.wav`, and `gen_audio.py`
+  reads it from the theme. Rerun `gen_audio.py` after changing it.
+- **Tools:** Remotion's bundled ffmpeg/ffprobe (`node_modules/@remotion/compositor-win32-x64-msvc/`)
+  are the only ones on this machine. They lack the `fps`/`select` filters and the raw `s16le` muxer,
+  which is why `qa.py` seeks once per frame and decodes through a temp wav.
+- **Real data only.** Each number is hard-coded in its scene, with its source in a comment:
+  - Overview stats, computed from `data/analyzed/index.json` with the frontend's LEVELS/ACTIVITIES.
+  - Explorer filter states, using the same filtering as `views/Explorer.jsx`.
+  - `/api/examples` chips, and the results for "where did trees become buildings".
+  - Tile 02353's model numbers (`02353.json`).
+  - Similar tiles, from `search.SimilarityIndex`.
+  - The batch rows: test pairs 00003, 00045, 00020 and 00046.
+  - Images in `public/` are copies: `ov_*` overlays, `im1_*` and `im2_*` raw pairs.
+- **Legend crop:** overlay PNGs are cropped 1.3× from the top (`LEGEND_CROP` in `src/ui.jsx`). A 1.2×
+  crop left six-class legends showing.
